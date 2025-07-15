@@ -106,8 +106,8 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
 
         if(id == 0){
             this.air[i]++;
-            // Mark this block as explicitly cleared to air
-            vs2[j] = 1;
+            // Use 2 as a sentinel value for cleared air to avoid extended ID glitches
+            vs2[j] = 2;
             vs[j] = 0;
         }else{
             vs2[j] = (char) ((id << 4) + data);
