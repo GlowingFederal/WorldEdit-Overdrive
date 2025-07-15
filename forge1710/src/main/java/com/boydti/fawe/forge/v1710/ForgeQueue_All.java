@@ -382,7 +382,8 @@ public class ForgeQueue_All extends NMSMappedFaweQueue<World, Chunk, ExtendedBlo
                     if (combined == 1) {
                         buffer.writeVarIntToBuffer(0); // cleared air
                     } else {
-                        buffer.writeVarIntToBuffer(combined); // full state value
+                        // Mask to 16 bits so high bits don't corrupt extended IDs
+                        buffer.writeVarIntToBuffer(combined & 0xFFFF);
                     }
                 }
             });
