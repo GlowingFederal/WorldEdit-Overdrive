@@ -106,8 +106,8 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
 
         if(id == 0){
             this.air[i]++;
-            // Use 2 as a sentinel value for cleared air to avoid extended ID glitches
-            vs2[j] = 2;
+            // Use 1 as a sentinel value for cleared air
+            vs2[j] = 1;
             vs[j] = 0;
             NibbleArray dataArray = datas[i];
             if (dataArray != null) {
@@ -319,8 +319,7 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                                 solid++;
                             }
                             continue;
-                        case 1:
-                        case 2: // sentinel for cleared air
+                        case 1: // sentinel for cleared air
                             currentIdArray[k] = 0;
                             if (extra) {
                                 int x = FaweCache.getX(0, k);

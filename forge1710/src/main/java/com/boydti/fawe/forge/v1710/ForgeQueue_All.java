@@ -379,7 +379,7 @@ public class ForgeQueue_All extends NMSMappedFaweQueue<World, Chunk, ExtendedBlo
                 public void run(int localX, int y, int localZ, int combined) {
                     short index = (short) (localX << 12 | localZ << 8 | y);
                     buffer.writeShort(index);
-                    if (combined == 2 || combined == 1) {
+                    if (combined == 1) {
                         buffer.writeVarIntToBuffer(0); // cleared air
                     } else {
                         buffer.writeVarIntToBuffer(combined); // full state value
