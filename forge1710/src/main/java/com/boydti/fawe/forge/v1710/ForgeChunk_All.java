@@ -86,6 +86,12 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
     }
 
     @Override
+    public int getBlockCombinedId(int x, int y, int z) {
+        int combined = super.getBlockCombinedId(x, y, z);
+        return combined == 1 ? 0 : combined;
+    }
+
+    @Override
     public void setBlock(int x, int y, int z, int id) {
         setBlock(x, y, z, id, 0);
     }
