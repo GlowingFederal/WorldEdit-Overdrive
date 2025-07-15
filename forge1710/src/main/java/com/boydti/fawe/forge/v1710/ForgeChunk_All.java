@@ -321,11 +321,14 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                             continue;
                         case 1: // sentinel for cleared air
                             currentIdArray[k] = 0;
-                            if (extra) {
-                                int x = FaweCache.getX(0, k);
-                                int y = FaweCache.getY(0, k);
-                                int z = FaweCache.getZ(0, k);
+                            int x = FaweCache.getX(0, k);
+                            int y = FaweCache.getY(0, k);
+                            int z = FaweCache.getZ(0, k);
+                            if (currentExtraArray != null) {
                                 currentExtraArray.set(x, y, z, 0);
+                            }
+                            if (currentDataArray != null) {
+                                currentDataArray.set(x, y, z, 0);
                             }
                             continue;
                         default:
