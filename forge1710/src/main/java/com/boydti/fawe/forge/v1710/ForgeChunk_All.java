@@ -319,7 +319,7 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                                 solid++;
                             }
                             continue;
-                        case 1: // sentinel for cleared air
+                        case 1: { // sentinel for cleared air
                             currentIdArray[k] = 0;
                             int x = FaweCache.getX(0, k);
                             int y = FaweCache.getY(0, k);
@@ -331,7 +331,8 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                                 currentDataArray.set(x, y, z, 0);
                             }
                             continue;
-                        default:
+                        }
+                        default: {
                             solid++;
                             currentIdArray[k] = newIdArray[k];
                             if (data) {
@@ -363,6 +364,7 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                                 currentExtraArray.set(x, y, z, 0);
                             }
                             continue;
+                        }
                     }
                 }
                 getParent().setCount(0, solid, section);
