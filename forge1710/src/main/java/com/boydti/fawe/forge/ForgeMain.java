@@ -34,6 +34,9 @@ public class ForgeMain {
         FMLCommonHandler.instance().bus().register(this);
         this.IMP = new FaweForge(this, event.getModLog(), event.getModMetadata(), directory);
 
+        // Register a chunk updater so WorldEdit can send block updates after operations
+        CommandManager.setChunkUpdater(new com.boydti.fawe.forge.v1710.ForgeChunkUpdater());
+
         try {
             Class.forName("org.spongepowered.api.Sponge");
             Settings.IMP.QUEUE.PARALLEL_THREADS = 1;
