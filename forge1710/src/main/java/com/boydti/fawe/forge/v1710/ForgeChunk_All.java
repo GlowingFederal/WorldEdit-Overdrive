@@ -106,14 +106,8 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
 
         if(id == 0){
             this.air[i]++;
-
-            /**
-             * @TODO REQUIRES MORE TESTING
-             *      for some reason the extended ID breaks when its 1 or 0????
-             *      (0 supposed to indicate no change to the block and 1 supposed to indicate a change???)
-             *      (Either way anything below 16 after bitshift magic will result in 0 as the ID)
-             */
-            vs2[j] = (char) 2;
+            // Mark this block as explicitly cleared to air
+            vs2[j] = 1;
             vs[j] = 0;
         }else{
             vs2[j] = (char) ((id << 4) + data);
