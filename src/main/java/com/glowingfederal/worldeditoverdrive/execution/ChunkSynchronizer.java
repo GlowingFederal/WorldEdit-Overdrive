@@ -17,15 +17,18 @@ import net.minecraft.world.chunk.Chunk;
 public final class ChunkSynchronizer {
     public enum Strategy { NONE, MULTI_BLOCK, CHUNK }
 
-    public Strategy synchronize(WorldServer world, Chunk chunk, PreparedChunkChange change,
-            ChunkCommitResult result, int sparseThreshold) {
-        return synchronize(world, chunk, change, result, sparseThreshold, null);
+    public static final class SynchronizationResult {
+        private final Strategy strategy;
+        private final int tilePackets;
+        SynchronizationResult(Strategy strategy, int tilePackets) { this.strategy=strategy;this.tilePackets=tilePackets; }
+        public Strategy getStrategy() { return strategy; }
+        public int getTilePackets() { return tilePackets; }
     }
 
-    Strategy synchronize(WorldServer world, Chunk chunk, PreparedChunkChange change,
-            ChunkCommitResult result, int sparseThreshold, OverdriveOperation operation) {
+    public SynchronizationResult synchronize(WorldServer world, Chunk chunk, PreparedChunkChange change,
+            ChunkCommitResult result, int sparseThreshold) {
         PlayerManager manager = world.getPlayerManager();
-        if (!manager.func_152621_a(change.getChunkX(), change.getChunkZ())) return Strategy.NONE;
+        if (!manager.func_152621_a(change.getChunkX(), change.getChunkZ())) return new SynchronizationResult(Strategy.NONE,0);
         boolean full = result.isBiomeDirty() || result.suggestsFullChunkPacket()
                 || result.getChangedBlocks() > sparseThreshold;
         Packet packet = full
@@ -37,6 +40,7 @@ public final class ChunkSynchronizer {
             if (manager.isPlayerWatchingChunk(target, change.getChunkX(), change.getChunkZ()))
                 target.playerNetServerHandler.sendPacket(packet);
         }
+        int tilePackets=0;
         if (result.isTileDirty()) {
             for (PreparedChunkChange.TileData tile : change.getTiles()) {
                 TileEntity live = world.getTileEntity((change.getChunkX() << 4) | tile.getLocalX(),
@@ -46,11 +50,11 @@ public final class ChunkSynchronizer {
                     if (player instanceof EntityPlayerMP && manager.isPlayerWatchingChunk(
                             (EntityPlayerMP) player, change.getChunkX(), change.getChunkZ())) {
                         ((EntityPlayerMP) player).playerNetServerHandler.sendPacket(live.getDescriptionPacket());
-                        if (operation != null) operation.tilePackets++;
+                        tilePackets++;
                     }
                 }
             }
         }
-        return full ? Strategy.CHUNK : Strategy.MULTI_BLOCK;
+        return new SynchronizationResult(full ? Strategy.CHUNK : Strategy.MULTI_BLOCK,tilePackets);
     }
 }

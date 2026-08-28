@@ -103,9 +103,8 @@ public final class Stage4SetBridge {
         List<PreparedChunkChange> changes=ConstantFillPlanner.prepareChanged(world,(CuboidRegion)region,block,tile);
         long filtered=System.nanoTime();
         if (!reserveLimit(session,(int)volume)) return fallback("BlockChangeLimiter state unavailable");
-        OverdriveChangeSet history=new OverdriveChangeSet(session.getWorld(),64L<<20);
-        session.setChangeSet(history);
-        int affected=0, raw=0, nativeCount=0, dense=0, sparse=0,sparsePackets=0,chunkPackets=0; long historyNanos=0, commitNanos=0,
+        OverdriveChangeSet history=new OverdriveChangeSet(64L<<20);
+        int affected=0, raw=0, nativeCount=0, dense=0, sparse=0,sparsePackets=0,chunkPackets=0,tilePackets=0; long historyNanos=0, commitNanos=0,
                 lightingNanos=0, syncNanos=0, preparedBytes=0;
         for(PreparedChunkChange change:changes) preparedBytes+=change.estimatedBytes();
         String phaseName="history/commit/synchronization"; PreparedChunkChange active=null; boolean mutationStarted=false;
@@ -119,24 +118,29 @@ public final class Stage4SetBridge {
             raw+=result.getRawBlocks(); nativeCount+=result.getNativeBlocks(); dense+=result.getDenseSections();
             sparse+=result.getTouchedSections()-result.getDenseSections();
             Chunk chunk=world.getChunkFromChunkCoords(change.getChunkX(),change.getChunkZ());
-            phase=System.nanoTime(); ChunkSynchronizer.Strategy strategy=sync.synchronize(world,chunk,change,result,512);
+            phase=System.nanoTime(); ChunkSynchronizer.SynchronizationResult synchronization=sync.synchronize(world,chunk,change,result,512);
+            ChunkSynchronizer.Strategy strategy=synchronization.getStrategy();
             if(strategy==ChunkSynchronizer.Strategy.CHUNK)chunkPackets++;else if(strategy==ChunkSynchronizer.Strategy.MULTI_BLOCK)sparsePackets++;
+            tilePackets+=synchronization.getTilePackets();
             syncNanos+=System.nanoTime()-phase; affected+=result.getChangedBlocks();
         }} catch(Throwable failure){
             history.seal();
+            attachHistory(session,history);
             long total=System.nanoTime()-started;
             String where=active==null?"": " chunk="+active.getChunkX()+","+active.getChunkZ();
             OverdriveEditSummary summary=new OverdriveEditSummary("//set","accelerated",volume,affected,changes.size(),dense,sparse,raw,nativeCount,
-                    planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,0,preparedBytes,false,phaseName,failure.toString());
+                    planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,tilePackets,preparedBytes,false,phaseName,failure.toString());
             OverdriveSummaries.publish(summary);
             OverdriveLog.error("//set failed: phase="+phaseName+where+" mutationStarted="+mutationStarted,failure);
             if(failure instanceof Error)throw (Error)failure;
             if(failure instanceof RuntimeException)throw (RuntimeException)failure;
             throw new RuntimeException(failure);
         }
-        history.seal();long total=System.nanoTime()-started;
+        history.seal();
+        attachHistory(session,history);
+        long total=System.nanoTime()-started;
         OverdriveEditSummary summary=new OverdriveEditSummary("//set","accelerated",volume,affected,changes.size(),dense,sparse,raw,nativeCount,
-                planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,0,preparedBytes,true,null,null);
+                planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,tilePackets,preparedBytes,true,null,null);
         OverdriveSummaries.publish(summary);
         OverdriveLog.info("//set summary emission proof: snapshot published");
         OverdriveLog.info(summary.format());
@@ -146,6 +150,10 @@ public final class Stage4SetBridge {
 
     private static Object readField(Object owner,String name) throws ReflectiveOperationException {
         Field field=owner.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(owner);
+    }
+
+    private static void attachHistory(EditSession session,OverdriveChangeSet history) {
+        if(history.size()>0)session.getChangeSet().add(history.asChange());
     }
 
     private static BaseBlock resolveComposedConstant(Object candidate) throws ReflectiveOperationException {

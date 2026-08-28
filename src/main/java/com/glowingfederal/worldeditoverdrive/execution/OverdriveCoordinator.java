@@ -149,13 +149,15 @@ public final class OverdriveCoordinator {
                 ChunkCommitResult result=writer.commit(operation.world, change, operation.policy);
                 Chunk chunk=operation.world.getChunkFromChunkCoords(change.getChunkX(), change.getChunkZ());
                 synchronized (lock) { operation.pendingSync++; }
-                ChunkSynchronizer.Strategy strategy=synchronizer.synchronize(operation.world, chunk, change, result,
-                        config.sparsePacketThreshold, operation);
+                ChunkSynchronizer.SynchronizationResult synchronization=synchronizer.synchronize(
+                        operation.world, chunk, change, result, config.sparsePacketThreshold);
+                ChunkSynchronizer.Strategy strategy=synchronization.getStrategy();
                 synchronized (lock) {
                     operation.pendingSync--; operation.committed++; operation.committedBlocks+=result.getChangedBlocks();
                     operation.raw+=result.getRawBlocks(); operation.nativeCount+=result.getNativeBlocks();
                     if(strategy==ChunkSynchronizer.Strategy.CHUNK) operation.chunkPackets++;
                     else if(strategy==ChunkSynchronizer.Strategy.MULTI_BLOCK) operation.sparsePackets++;
+                    operation.tilePackets+=synchronization.getTilePackets();
                     operation.commitNanos+=System.nanoTime()-commitStart; operation.commitActive=false;
                     finishPartition(operation,partition); maybeComplete(operation);
                 }
