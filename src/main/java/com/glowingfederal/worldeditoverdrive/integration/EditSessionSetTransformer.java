@@ -19,8 +19,14 @@ import org.objectweb.asm.tree.VarInsnNode;
 public final class EditSessionSetTransformer implements IClassTransformer {
     private static final String TARGET="com.sk89q.worldedit.EditSession";
     private static final String DESC="(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)I";
+    public EditSessionSetTransformer() {
+        Stage4HookStatus.transformerRegistered=true;
+    }
+
     public byte[] transform(String name,String transformedName,byte[] bytes) {
         if(!TARGET.equals(transformedName))return bytes;
+        Stage4HookStatus.editSessionSeen=true;
+        Stage4HookStatus.targetNames="name="+name+", transformedName="+transformedName;
         ClassNode node=new ClassNode(); new ClassReader(bytes).accept(node,0); int matches=0;
         for(MethodNode method:node.methods) if("setBlocks".equals(method.name)&&DESC.equals(method.desc)) {
             matches++; LabelNode fallback=new LabelNode(); InsnList hook=new InsnList();
@@ -32,7 +38,16 @@ public final class EditSessionSetTransformer implements IClassTransformer {
             hook.add(fallback); hook.add(new FrameNode(Opcodes.F_SAME1,0,null,1,new Object[]{"java/lang/Integer"})); hook.add(new InsnNode(Opcodes.POP));
             AbstractInsnNode first=method.instructions.getFirst(); method.instructions.insertBefore(first,hook);
         }
-        if(matches!=1)throw new IllegalStateException("Expected exactly one Enhanced setBlocks(Region,Pattern), found "+matches);
-        ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS); node.accept(writer); return writer.toByteArray();
+        Stage4HookStatus.targetMethodMatched=matches==1;
+        if(matches!=1) {
+            cpw.mods.fml.common.FMLLog.severe("WorldEdit Overdrive saw EditSession (%s) but expected descriptor %s matched %d methods; Stage 4 hook not installed",
+                    Stage4HookStatus.targetNames,DESC,matches);
+            throw new IllegalStateException("Expected exactly one Enhanced setBlocks(Region,Pattern), found "+matches);
+        }
+        ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS); node.accept(writer);
+        Stage4HookStatus.hookInstalled=true;
+        cpw.mods.fml.common.FMLLog.info("WorldEdit Overdrive Stage 4 hook installed into EditSession#setBlocks(Region, Pattern) (%s; descriptor matched=true)",
+                Stage4HookStatus.targetNames);
+        return writer.toByteArray();
     }
 }

@@ -101,3 +101,14 @@ Changes are listed oldest to newest.
 - Added a descriptor-checked, single-method Enhanced `EditSession#setBlocks` redirect with conservative pre-mutation eligibility and transparent native fallback.
 - Added world-read-free cuboid/chunk/section planning, direct dense full-section population, constant legacy state and tile-NBT translation, server-thread Enhanced history capture, and watcher-owned synchronization.
 - Documented the exact Enhanced execution/extent path, modern and legacy FAWE comparison, completion and history model, compatibility compromises, unclaimed runtime matrix, benchmark plan, and blockers before Stage 5.
+
+## (6c2c182 Diagnose Stage 4 set hook activation)
+
+- Corrected the coremod transformer exclusion boundary so the injected Stage 4
+  bridge remains visible to LaunchClassLoader-owned WorldEdit and Minecraft
+  classes.
+- Added concise core-plugin, transformer, descriptor, hook-state, FML metadata,
+  runtime-type, counter, and first-fallback diagnostics.
+- Kept exact session/cuboid safety, added a conservative constant-pattern
+  resolver, and documented the runtime verification procedure and the reason
+  WorldEdit's package-derived API version may be unknown.

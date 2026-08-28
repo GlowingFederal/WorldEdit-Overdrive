@@ -10,6 +10,9 @@ import cpw.mods.fml.common.FMLCommonHandler;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveConfiguration;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveCoordinator;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveTickHandler;
+import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
+import cpw.mods.fml.common.Loader;
+import cpw.mods.fml.common.ModContainer;
 
 @Mod(
         modid = WorldEditOverdrive.MOD_ID,
@@ -27,8 +30,21 @@ public final class WorldEditOverdrive {
 
     @Mod.EventHandler
     public void initialize(FMLInitializationEvent event) {
-        FMLLog.info("WorldEdit Overdrive loaded with WorldEdit %s.", WorldEdit.getVersion());
+        ModContainer worldEdit=Loader.instance().getIndexedModList().get("worldedit");
+        String fmlVersion=worldEdit==null ? "not present" : worldEdit.getVersion();
+        String apiVersion=WorldEdit.getVersion();
+        FMLLog.info("WorldEdit Overdrive detected WorldEdit mod: %s",fmlVersion);
+        if (!sameVersion(apiVersion,fmlVersion))
+            FMLLog.info("WorldEdit Overdrive version diagnostics: FML=%s, WorldEdit API=%s",fmlVersion,apiVersion);
+        String reason=Stage4HookStatus.hookInstalled ? "" : Stage4HookStatus.editSessionSeen
+                ? " (target descriptor did not match)" : " (EditSession target not transformed)";
+        FMLLog.info("WorldEdit Overdrive: WorldEdit %s detected; Stage 4 //set hook %s%s",
+                fmlVersion,Stage4HookStatus.hookInstalled ? "ACTIVE" : "INACTIVE",reason);
         FMLCommonHandler.instance().bus().register(ticks);
+    }
+
+    private static boolean sameVersion(String api,String fml) {
+        return api!=null && fml!=null && !api.toLowerCase().contains("unknown") && api.equals(fml);
     }
 
     @Mod.EventHandler
