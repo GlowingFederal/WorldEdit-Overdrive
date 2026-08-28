@@ -1,8 +1,9 @@
 # WorldEdit Overdrive
 
 WorldEdit Overdrive is a Forge 1.7.10 addon for **WorldEdit Enhanced 6.3.0**.
-This repository is currently at its addon-foundation stage: it verifies the
-WorldEdit API dependency but does not yet provide FAWE/KAWE acceleration.
+The addon now contains the Stage 2 operation-owned chunk buffer and Forge 1.7.10
+commit engine. It is intentionally not connected to WorldEdit commands or
+`EditSession` yet; see [the backend design](docs/stage-2-backend.md).
 
 ## Runtime installation
 
@@ -31,7 +32,7 @@ dependency and is not embedded in this JAR.
 ## Repository layout
 
 The root project is the only active Gradle project. Its Java source set has an
-explicit `com/glowingfederal/worldeditoverdrive/**` include, so only the minimal
-addon entry point is compiled. The `core`, `bukkit`, `forge1710`, `favs`, and
+explicit `com/glowingfederal/worldeditoverdrive/**` include, so only owned addon
+and backend classes are compiled. The `core`, `bukkit`, `forge1710`, `favs`, and
 `ReferenceSRC` directories—including the old `com.boydti.fawe.forge` sources—are
 retained solely as legacy migration reference and are not compiled or packaged.

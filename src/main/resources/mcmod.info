@@ -2,7 +2,7 @@
   {
     "modid": "worldeditoverdrive",
     "name": "WorldEdit Overdrive",
-    "description": "A Forge 1.7.10 addon foundation for WorldEdit Enhanced.",
+    "description": "A correctness-first Forge 1.7.10 acceleration addon for WorldEdit Enhanced.",
     "version": "${version}",
     "mcversion": "${mcVersion}",
     "dependencies": ["required-after:worldedit"]

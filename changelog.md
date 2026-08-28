@@ -61,3 +61,16 @@ Changes are listed oldest to newest.
   reference material for later porting.
 - Updated the project and integration documentation to describe the minimal
   addon boundary and deferred acceleration work.
+
+## (3bb8526 Implement Stage 2 Forge chunk backend)
+
+- Added operation-owned hybrid sparse/dense chunk preparation with explicit air,
+  extended numeric IDs, metadata, tile NBT, biomes, dirty columns, exact change
+  counts, and lightweight memory estimates.
+- Added a server-thread-only Forge writer with conservative raw classification,
+  native compatibility fallback, vanilla section-counter and contextual height/
+  light finalization, explicit tile lifecycle, and propagating failures.
+- Added a compact commit result and cancellation-ready section boundaries without
+  connecting the backend to WorldEdit commands or `EditSession`.
+- Documented the subsystem-by-subsystem legacy FAWE, supplied modern FAWE,
+  WorldEdit Enhanced, and Overdrive design comparison.
