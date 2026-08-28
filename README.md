@@ -1,5 +1,9 @@
 # WorldEdit Overdrive
 
+The Stage 3 bounded execution/coordinator architecture is documented in
+[`docs/stage-3-execution.md`](docs/stage-3-execution.md). It remains an internal
+API and does not integrate WorldEdit commands or sessions.
+
 WorldEdit Overdrive is a Forge 1.7.10 addon for **WorldEdit Enhanced 6.3.0**.
 The addon now contains the Stage 2 operation-owned chunk buffer and Forge 1.7.10
 commit engine. It is intentionally not connected to WorldEdit commands or
