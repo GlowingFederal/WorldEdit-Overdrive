@@ -1,37 +1,43 @@
 buildscript {
     repositories {
         mavenCentral()
+
         maven {
             name = "forge"
             url = "https://maven.minecraftforge.net/"
         }
+
         maven {
             name = "sonatype"
             url = "https://oss.sonatype.org/content/repositories/snapshots/"
         }
+
         maven {
             name = "jitpack"
             url = "https://jitpack.io"
         }
+
         maven {
             name = "gt"
             url = "https://gregtech.mechaenetia.com/"
         }
     }
+
     dependencies {
         classpath 'com.github.GTNewHorizons:ForgeGradle:1.2.11'
     }
 }
 
 apply plugin: 'forge'
-apply plugin: 'com.github.johnrengelman.shadow'
 
-clean { delete "../target" }
+repositories {
+    maven {
+        url = "https://www.cursemaven.com"
+    }
+}
 
 dependencies {
-    compile project(':core')
     compile 'curse.maven:worldedit-legacy-enhanced-1135144:5879351'
-    compile 'org.xerial:sqlite-jdbc:3.34.0' // or the latest version
 }
 
 sourceCompatibility = 1.8
@@ -42,48 +48,22 @@ minecraft {
     runDir = 'run'
 }
 
-project.archivesBaseName = "${project.archivesBaseName}-mc${minecraft.version}"
+archivesBaseName = "WorldEditOverdrive"
 
 processResources {
+    inputs.property "version", project.version
+    inputs.property "mcversion", project.minecraft.version
+
     from(sourceSets.main.resources.srcDirs) {
-        expand 'version': project.version,
-                'mcVersion': project.minecraft.version
+        include 'mcmod.info'
+
+        expand(
+                version: project.version,
+                mcversion: project.minecraft.version
+        )
+    }
+
+    from(sourceSets.main.resources.srcDirs) {
         exclude 'mcmod.info'
     }
-}
-
-shadowJar {
-    // WorldEdit Enhanced is an external runtime mod. Only package KAWE and its
-    // private libraries; never assemble or shadow a WorldEdit distribution.
-    // Include the project-owned classes directly: Shadow 2's dependency filter
-    // does not reliably expand another Gradle project's compiled output.
-    dependsOn project(':core').tasks.classes
-    from project(':core').sourceSets.main.output
-    relocate 'org.yaml.snakeyaml', 'com.boydti.fawe.yaml'
-    dependencies {
-        include(dependency('com.github.luben:zstd-jni:1.1.1'))
-//        include(dependency('org.javassist:javassist:3.22.0-CR1'))
-        include(dependency('co.aikar:fastutil-lite:1.0'))
-        include(dependency('org.yaml:snakeyaml:1.16'))
-    }
-    archiveName = "${parent.name}-${project.name}-${parent.version}.jar"
-    destinationDir = file '../target'
-    manifest {
-        attributes("Main-Class": "com.boydti.fawe.installer.InstallerFrame")
-    }
-}
-
-
-
-reobf.reobf(shadowJar) { spec ->
-    spec.classpath = sourceSets.main.compileClasspath;
-}
-
-task deobfJar(type: Jar) {
-    from sourceSets.main.output
-    classifier = 'dev'
-}
-
-artifacts {
-    archives deobfJar
 }
