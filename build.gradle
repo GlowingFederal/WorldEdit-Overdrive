@@ -1,148 +1,49 @@
 buildscript {
     repositories {
         mavenCentral()
-        maven { url = "https://oss.sonatype.org/content/repositories/snapshots/" }
-        jcenter()
-        gradlePluginPortal()
-    }
-	dependencies {
-        classpath 'com.github.jengelman.gradle.plugins:shadow:2.0.4'
-        classpath 'org.ajoberstar:grgit:1.7.0'
-    }
-    configurations.all {
-        resolutionStrategy {
-            force 'org.ow2.asm:asm:6.0_BETA'
+        maven {
+            name = 'forge'
+            url = 'https://maven.minecraftforge.net/'
         }
     }
-}
-
-task setupCIWorkspace {
-    // do nothing, stub method
-}
-
-apply plugin: 'java'
-clean { delete "target" }
-
-group = 'com.boydti.fawe'
-
-def revision = ""
-def buildNumber = ""
-def semver = ""
-def date = ""
-ext {
-    try {
-        git = org.ajoberstar.grgit.Grgit.open(file(".git"))
-        date = git.head().date.format("yy.MM.dd")
-        revision = "-${git.head().abbreviatedId}"
-        parents = git.head().parentIds;
-        index = -67;  // Offset to match CI
-        int major, minor, patch;
-        major = minor = patch = 0;
-        for (; parents != null && !parents.isEmpty(); index++) {
-            int majorCount, minorCount, patchCount;
-            patchCount = minor == 0 && major == 0 ? 1 : 0;
-            commit = git.getResolve().toCommit(parents.get(0));
-            for (String line : commit.fullMessage.tokenize("\n")) {
-                switch (line.replaceAll("- ", "").split(" ")[0].toLowerCase()) {
-                    case "minor":
-                    case "added":
-                    case "add":
-                    case "change":
-                    case "changed":
-                    case "changes":
-                        if (major == 0) {
-                            minorCount = 1; patchCount = 0;
-                        }
-                        break;
-                    case "refactor":
-                    case "remove":
-                    case "major":
-                        patchCount = minorCount = 0;
-                        majorCount = 1;
-                        break;
-                }
-            }
-            major += majorCount;
-            minor += minorCount;
-            patch += patchCount;
-            parents = commit.getParentIds()
-        }
-        buildNumber = "-${index}"
-        semver = "-${major}.${minor}.${patch}"
-    } catch (Throwable ignore) {
-        revision = "unknown";
+    dependencies {
+        classpath 'com.github.GTNewHorizons:ForgeGradle:1.2.11'
     }
 }
 
-version = date + revision + buildNumber + semver
-if ( project.hasProperty("lzNoVersion") ) { // gradle build -PlzNoVersion
-    version = "unknown"
-}
-description = """LDFAWE"""
+apply plugin: 'forge'
 
-subprojects {
+group = 'com.glowingfederal.worldeditoverdrive'
+version = '1.0.0'
+archivesBaseName = 'WorldEditOverdrive'
 
-    apply plugin: 'java'
-    apply plugin: 'maven'
-    apply plugin: 'eclipse'
-    apply plugin: 'idea'
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
 
-    sourceCompatibility = 1.8
-    targetCompatibility = 1.8
-
-    compileJava {
-        options.compilerArgs += ["-parameters"]
-    }
-
-    repositories {
-        // WorldEdit Enhanced is published through Curse Maven. Keep the plain
-        // Maven declaration for this ForgeGradle generation (there is no
-        // modern fg.deobf dependency helper here).
-        maven { url "https://www.cursemaven.com" }
-        // Resolve WorldEdit coordinates from the project's authoritative
-        // repository before consulting legacy aggregate mirrors.
-        maven {url "https://maven.enginehub.org/repo/"}
-        // maven {url "https://mvnrepository.com/artifact/"}
-        mavenCentral()
-        maven {url "https://repo.dmulloy2.net/content/groups/public/"}
-        maven {url "https://repo.destroystokyo.com/repository/maven-public//"}
-        //maven {url "https://ci.emc.gs/nexus/content/groups/aikar/" }
-        maven {url "https://ci.athion.net/plugin/repository/tools/"}
-        mavenLocal()
-        maven {url "https://hub.spigotmc.org/nexus/content/groups/public/"}
-        maven {url "https://repo.maven.apache.org/maven2"}
-        maven {url "https://ci.frostcast.net/plugin/repository/everything"}
-        maven {url "https://repo.spongepowered.org/maven"}
-        maven {url "https://dl.bintray.com/tastybento/maven-repo"}
-        maven {url "https://repo.inventivetalent.org/content/groups/public/"}
-        maven {url "https://store.ttyh.ru/libraries/"}
-        maven {url "https://repo.dmulloy2.net/nexus/repository/public/"}
-        maven {url "https://maven.elmakers.com/repository/"}
-        maven {url "https://ci.ender.zone/plugin/repository/everything/"}
-        maven {url "https://repo.minebench.de/"}
-    }
-}
-task aggregatedJavadocs(type: Javadoc, description: 'Generate javadocs from all child projects as if it was a single project', group: 'Documentation') {
-    destinationDir = file("./docs/javadoc")
-    title = "$project.name $version API"
-    options.author true
-    options.links 'https://docs.spring.io/spring/docs/4.3.x/javadoc-api/', 'https://docs.oracle.com/javase/8/docs/api/', 'https://docs.spring.io/spring-ws/docs/2.3.0.RELEASE/api/', 'https://docs.spring.io/spring-security/site/docs/4.0.4.RELEASE/apidocs/'
-    options.addStringOption('Xdoclint:none', '-quiet')
-
-    delete "./docs"
-
-    subprojects.each { proj ->
-        proj.tasks.withType(Javadoc).each { javadocTask ->
-            source += javadocTask.source
-            classpath += javadocTask.classpath
-            excludes += javadocTask.excludes
-            includes += javadocTask.includes
-        }
-    }
+repositories {
+    // Plain Maven syntax is required by this ForgeGradle/Gradle generation.
+    maven { url = 'https://www.cursemaven.com' }
 }
 
-task printVersionNumber {
-    doLast {
-        println project.version
+dependencies {
+    // WorldEdit Enhanced is supplied as a separate mod at runtime.
+    compile 'curse.maven:worldedit-legacy-enhanced-1135144:5879351'
+}
+
+minecraft {
+    version = '1.7.10-10.13.4.1614-1.7.10'
+    runDir = 'run'
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'mcVersion', project.minecraft.version
+
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+        expand 'version': project.version, 'mcVersion': project.minecraft.version
+    }
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
     }
 }

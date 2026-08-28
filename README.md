@@ -1,67 +1,36 @@
-<p align="center">
-  <img src="https://i.imgur.com/Fog5fDB.png">
-</p>
+# WorldEdit Overdrive
 
----
+WorldEdit Overdrive is a Forge 1.7.10 addon for **WorldEdit Enhanced 6.3.0**.
+This repository is currently at its addon-foundation stage: it verifies the
+WorldEdit API dependency but does not yet provide FAWE/KAWE acceleration.
 
-# This is the legacy version of FAWE (1.7.10) Nicknamed: KAWE ;D . Built and Backported to work with 1.7.10 Forge (an alpha version from the original team)
-> It is not maintained by the FAWE team. You can find the newer version of FAWE [here](https://github.com/IntellectualSites/FastAsyncWorldEdit).
+## Runtime installation
 
-FAWE is a fork of WorldEdit that has huge speed and memory improvements and considerably more features
-It is available for Bukkit, Forge, Sponge and Nukkit.
+Install these mods on Forge `1.7.10-10.13.4.1614-1.7.10`:
 
-## Links 
+1. WorldEdit Enhanced 6.3.0
+2. FalsePatternLib (required by Enhanced)
+3. WorldEdit Overdrive
 
-* [Spigot Page](https://www.spigotmc.org/threads/fast-async-worldedit.100104/)
-* [Discord](https://discord.gg/ngZCzbU)
-* [Wiki](https://github.com/boy0001/FastAsyncWorldedit/wiki)
-
-## Developer Resources
-* [Maven Repo](http://ci.athion.net/job/FastAsyncWorldEdit/ws/mvn/)
-* [API Documentation](https://github.com/boy0001/FastAsyncWorldedit/wiki/API)
+Enhanced is the authoritative WorldEdit implementation. Do not install another
+legacy WorldEdit distribution alongside it. Overdrive has its own
+`worldeditoverdrive` mod ID and requires Enhanced's `worldedit` mod ID.
 
 ## Building
-FAWE uses gradle to build
 
+Use Java 8 and the checked-in Gradle wrapper:
+
+```sh
+./gradlew clean build
 ```
-$ gradlew setupDecompWorkspace
-$ gradlew build
-```
 
-The Forge artifact in `target/` is an acceleration add-on. A server must install
-**WorldEdit Enhanced 6.3.0** (mod ID `worldedit`) and its required
-**FalsePatternLib** dependency alongside KAWE. KAWE embeds its complete `:core`
-compiled output (including its FAWE-modified `com.sk89q.worldedit` overrides and
-additions), but does not embed Enhanced's WorldEdit implementation or Forge
-platform. Do not install ordinary legacy WorldEdit beside Enhanced: both
-implementations own the same packages and the same Forge mod ID.
+The normal installable artifact is
+`build/libs/WorldEditOverdrive-1.0.0.jar`. WorldEdit Enhanced is a compile-time
+dependency and is not embedded in this JAR.
 
-The build consumes Enhanced from
-`curse.maven:worldedit-legacy-enhanced-1135144:5879351` as a compile dependency.
-Enhanced owns its FalsePatternLib runtime/development dependency declaration;
-KAWE does not directly use FalsePatternLib APIs or package either mod. See
-[`docs/worldedit-enhanced-integration.md`](docs/worldedit-enhanced-integration.md)
-for the ownership audit and integration boundary.
+## Repository layout
 
-The canonical Forge release jar is assembled from the complete compiled outputs
-of `:core` and `:forge1710`, plus the existing private shaded support libraries.
-The build adds `:core`'s source-set output directly rather than asking Shadow to
-discover project classes through dependency resolution; Enhanced and
-FalsePatternLib therefore remain separate installed mods.
-
-## Forge 1.7.10 commit safety
-
-Live Forge chunk commits and their queued relighting are owned by the server thread. The
-queue remains chunk-buffered and tick-budgeted; only the final interaction with live
-Minecraft state is serialized. CPU-only edit preparation may still run asynchronously.
-
-The first correctness pass also recalculates vanilla section reference counts, affected
-height-map columns, and tile-entity lifecycles during commit. Operators upgrading an
-existing server should follow the checklist in
-[`docs/forge-1710-correctness-checklist.md`](docs/forge-1710-correctness-checklist.md).
-
-## Contributing
-Have an idea for an optimization, or a cool feature?
- - I'll accept most PR's
- - Let me know what you've tested / what may need further testing
- - If you need any help, create a ticket or discuss on [Discord](https://discord.gg/ngZCzbU)
+The root `src/main/java` and `src/main/resources` directories form the only
+active Gradle project. The `core`, `bukkit`, `forge1710`, `favs`, and
+`ReferenceSRC` directories are retained solely as legacy migration reference;
+none of their sources are compiled by the active build.

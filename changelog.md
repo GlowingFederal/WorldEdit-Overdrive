@@ -44,3 +44,12 @@ Changes are listed oldest to newest.
 - Kept WorldEdit Enhanced and FalsePatternLib external while preserving KAWE's
   WorldEdit overrides, FAWE classes, Forge output, and private shaded libraries.
 - Documented the assembled artifact topology and Enhanced integration boundary.
+
+## (b20782e Establish WorldEdit Overdrive addon foundation)
+
+- Replaced the active KAWE multi-module topology with one conventional root
+  Forge 1.7.10 addon project.
+- Added minimal `worldeditoverdrive` metadata and an owned entry point that
+  verifies the WorldEdit Enhanced API at initialization without acceleration.
+- Kept Enhanced external, retired Shadow and custom packaging from the active
+  build, and documented the normal `build/libs` runtime artifact.
