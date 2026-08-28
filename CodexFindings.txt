@@ -1,0 +1,1272 @@
+Repository Investigation Report
+Executive assessment
+The current repository is not a small acceleration shim around an external WorldEdit installation. It contains a large, modified legacy FAWE/WorldEdit core, a Forge 1.7.10 platform module, and a Bukkit module. For Forge, edits are normally intercepted by the repository’s own EditSession, accumulated in chunk-local ForgeChunk_All buffers, and then merged directly into ExtendedBlockStorage arrays.
+
+That architecture already offers meaningful performance advantages, but its Forge fast path is unsafe as a general-purpose editor for heavily modded 1.7.10:
+
+World and chunk mutation can run on worker threads.
+
+Raw section writes bypass block lifecycle and Forge hooks.
+
+Tile-entity replacement and creation are incomplete.
+
+Heightmaps are only allowed to increase, never decrease.
+
+ExtendedBlockStorage counts are incorrect or stale in several paths.
+
+Lighting is scheduled asynchronously while touching live world/chunk state.
+
+Biome and tile updates are not consistently marked dirty or synchronized.
+
+Failure handling frequently logs and continues, allowing partially applied edits to look successful.
+
+The new command-finalization chunk updater duplicates an existing queue packet path and captures mutable queue state in a way that requires careful verification.
+
+The best modernization direction is not to abandon batching. It is to retain chunk-local buffering, compressed history, optimized traversal, and batched packets while introducing:
+
+strict server-thread ownership of all Minecraft/Forge mutation,
+
+a compatibility classifier and side-effect policy,
+
+correct section/count/height/light/tile finalization,
+
+bounded queues and immutable worker results,
+
+explicit transaction states and failure propagation.
+
+1. Current Architecture
+1.1 Directory ownership and build boundaries
+Current project/fork
+The current compiled project consists of:
+
+core/ — a forked FAWE/WorldEdit core, including replacement classes under both com.boydti.fawe and com.sk89q.worldedit.
+
+forge1710/ — the active Forge 1.7.10 integration and direct chunk-writing implementation.
+
+bukkit/ — an additional Bukkit target.
+
+favs/ — present in the repository, but not included by settings.gradle and therefore not an active Gradle subproject.
+
+Only core, bukkit, and forge1710 are included by the Gradle settings. The root project remains named KAWE.
+
+The Forge module compiles the local core project and also declares the old published WorldEdit Forge 1.7.10 artifact 6.1.1-20151030.011615-19. The core module independently declares worldedit-core:6.1.3-SNAPSHOT, while also containing many com.sk89q.worldedit source classes itself. This mixed-source/mixed-binary arrangement is an important compatibility risk.
+
+Reference trees
+ReferenceSRC/FAWE1710SRC/ — curated legacy FAWE Forge 1.7.10 platform sources.
+
+ReferenceSRC/ModernFAWESRC/ — curated modern Forge platform/native-access sources. Despite the directory name, it does not contain the full modern FAWE queue, history, clipboard, or traversal engine.
+
+ReferenceSRC/WorldeditEnhancedSRC/ — curated WorldEdit Enhanced Forge 1.7.10 sources.
+
+These trees are currently outside every configured Gradle source root. Nothing in settings.gradle includes ReferenceSRC, so they are presently reference-only and should remain that way.
+
+1.2 Command execution and edit-session creation
+Normal WorldEdit commands enter the local CommandManager. handleCommand() wraps actors, submits an action through FawePlayer.runAction, and calls handleCommandOnCurrentThread(). Crucially, TaskManager.taskNow(..., Fawe.isMainThread()) means that when the event originated on the main thread, the wrapper chooses the asynchronous route.
+
+Consequently, much more than pattern generation can occur off-thread:
+
+command dispatch,
+
+selection and session access,
+
+region iteration,
+
+masks and patterns,
+
+queue reads of live chunks,
+
+history reads,
+
+clipboard reads,
+
+and sometimes queue flushing/world mutation.
+
+There is no immutable world snapshot separating compute from mutation.
+
+EditSessionBuilder.build() simply forwards its collected configuration into the repository’s custom EditSession constructor.
+
+The EditSession constructor:
+
+resolves and wraps the WorldEdit world,
+
+derives limits, fast mode, memory checking, and history behavior,
+
+acquires or creates a platform FaweQueue,
+
+builds FastWorldEditExtent as the lowest WorldEdit extent,
+
+adds history, limits, region restrictions, NBT stripping, and event extents above it.
+
+The queue is selected from the player, world wrapper, MCA world, or SetQueue, depending on context. The extent stack and history selection are assembled immediately afterward.
+
+Actual block path
+For ordinary placement:
+
+command / operation
+  -> EditSession.setBlock(...)
+  -> extent chain:
+       limits / regions / masks / history / event extents
+  -> FastWorldEditExtent.setBlock(...)
+  -> FaweQueue.setBlock(...)
+  -> ForgeChunk_All.setBlock(...)
+  -> buffered section arrays
+EditSession.setBlock increments its change counter and delegates through the selected history stage. Its integer-coordinate overload avoids constructing a new vector at that final step and calls the extent directly.
+
+FastWorldEditExtent translates a WorldEdit BaseBlock into queue ID/data/NBT operations. However, it uses a large hard-coded switch of numeric vanilla IDs to decide whether metadata and NBT are relevant. Unknown IDs fall through to the generic data-and-optional-NBT path, which is better than discarding custom data outright, but the overall policy remains coupled to a vanilla-era ID table.
+
+1.3 Chunk-local queue representation
+MappedFaweQueue stores queued changes per chunk. It also keeps mutable last-chunk/last-section caches for reads and lighting, session lists, notify tasks, and a change callback.
+
+Each global setBlock call:
+
+shifts X/Z to get chunk coordinates,
+
+obtains a FaweChunk,
+
+masks X/Z to local coordinates,
+
+writes into that chunk buffer.
+
+That is genuine chunk-local batching, not a disguised call to World#setBlock.
+
+ForgeChunk_All maintains, per vertical section:
+
+a char[4096] combined-ID/change sentinel array inherited from CharFaweChunk,
+
+a byte[4096] LSB ID array,
+
+an optional metadata NibbleArray,
+
+an optional extended-ID NibbleArray.
+
+Air is represented as combined value 1, because combined value 0 means “unchanged.”
+
+IDs above 255 are split between the byte LSB and MSB nibble; metadata is stored in a separate nibble array. This supports the 1.7.10 extended numeric block-ID format up to the nibble-supported range, rather than truncating all blocks to eight-bit IDs.
+
+The queue map uses a primitive long-to-object map and a last-chunk cache, reducing boxing and repeated map lookups.
+
+1.4 Queue scheduling and flushing
+SetQueue owns inactive and active queues and runs a repeating task once per tick. It adjusts a time budget based on observed tick timing and configured target TPS, then drains queued chunks within that budget.
+
+It also contains memory-pressure behavior:
+
+reduce time allocation,
+
+call saveMemory() on queues,
+
+force a chunk set,
+
+explicitly request garbage collection.
+
+Explicit flush() changes the global configured parallel-thread count, calls queue.next(...), and runs completion tasks in a finally block. Temporarily mutating the global Settings.IMP.QUEUE.PARALLEL_THREADS is race-prone if multiple operations flush concurrently.
+
+DefaultFaweQueueMap.next() has two modes:
+
+amount == 1: call each chunk directly on the caller thread.
+
+amount != 1: submit live FaweChunk.call() operations to the shared completion pool.
+
+Because ForgeChunk_All.call() directly mutates a live Minecraft chunk, the parallel path performs Minecraft world mutation on worker threads. This is a confirmed concurrency defect, not merely theoretical.
+
+1.5 Direct ExtendedBlockStorage mutation
+ForgeChunk_All.call():
+
+fetches or loads the target live chunk,
+
+marks it modified,
+
+manipulates entities and tile entities,
+
+optionally captures the old chunk for history,
+
+merges queued arrays directly into ExtendedBlockStorage,
+
+edits biome bytes,
+
+applies tile NBT.
+
+Empty section
+If the section does not exist and the queued edit contains non-air blocks, a new ExtendedBlockStorage is created and its raw arrays are installed directly.
+
+Full-section replacement
+If all 4096 positions are queued:
+
+an all-air result sets the section reference to null,
+
+otherwise the backing arrays are replaced wholesale.
+
+Partial-section merge
+For partial changes, the implementation iterates all 4096 cells in each touched section, ignores unchanged combined value 0, treats 1 as explicit air, and writes LSB, metadata, and MSB arrays for other blocks.
+
+This is substantially cheaper than invoking World#setBlock per position, particularly for dense edits. However, it bypasses all normal block lifecycle processing.
+
+1.6 Block IDs and metadata
+What works
+LSB IDs are stored as unsigned bytes.
+
+MSB ID nibbles are read and written.
+
+Metadata is maintained separately.
+
+Previous-state history now reads both LSB and MSB arrays rather than losing modded IDs above 255.
+
+The edited fork explicitly clears metadata and MSB data when replacing a block with air.
+
+Remaining weaknesses
+Valid metadata is partially decided through the global FaweCache.hasData(id) assumption.
+
+The FastWorldEditExtent ID policy is a hard-coded vanilla table.
+
+The multi-block packet uses combined & 0xFFFF; this is plausible for 1.7.10’s packed numeric state but needs protocol-level validation for IDs above 255 and every metadata value.
+
+Coremods that change section internals, block ID encoding, or packet interpretation may invalidate these assumptions.
+
+1.7 Tile entities
+The queue can carry block NBT, and FastWorldEditExtent.getLazyBlock() retrieves tile NBT for block types which FaweCache believes can have NBT.
+
+Before writing blocks, ForgeChunk_All.call() removes every existing tile entity located at any explicitly changed block. It calls invalidate() and removes the entry directly from chunkTileEntityMap.
+
+After raw arrays are merged, queued tile NBT is applied only if world.getTileEntity(x,y,z) returns a tile instance; it then calls readFromNBT on that existing instance.
+
+This is inadequate for modded Forge:
+
+It does not explicitly construct a tile entity from NBT.
+
+It does not explicitly call world.setTileEntity.
+
+It does not use WorldEdit Enhanced’s Forge Multipart override.
+
+It does not send a multipart description packet.
+
+It does not explicitly call markDirty.
+
+It does not validate that the tile class matches the newly written block.
+
+It does not reliably recover if tile construction or NBT loading fails.
+
+Whether world.getTileEntity happens to lazily create a tile for a particular block implementation is not a safe contract on which to base correctness.
+
+1.8 Biomes
+Biome edits are queued per chunk, then written into the chunk’s biome byte array.
+
+The encoding reserves 0 as “unchanged” and maps -1 to biome zero. This permits writing biome zero via a sentinel, but it is implicit and fragile.
+
+The WorldEdit Enhanced implementation similarly writes the chunk biome array directly, but only when the chunk is present and loaded. Neither reference alone proves adequate save or client update behavior; the acceleration layer should explicitly include biome changes in dirty-state and packet finalization.
+
+1.9 Heightmaps
+The current Forge queue receives a byte heightmap from the queued chunk and copies a value only if it is higher than the live chunk’s current height.
+
+This is a confirmed correctness bug:
+
+placing terrain above the old height can raise the heightmap,
+
+removing the top terrain can never lower it,
+
+replacing an opaque top block with air or a transparent block leaves stale heights,
+
+byte storage cannot cleanly distinguish a meaningful zero from “unchanged” without a separate dirty-column mask.
+
+A robust implementation must recompute every affected column from the highest touched section downward, or maintain enough old/new opacity information to update it exactly.
+
+1.10 Section counts
+For partially merged sections, setCount(0, solid, section) uses reflection to set ticking and non-empty block counts.
+
+There are two serious problems:
+
+Ticking count is always forced to zero. Any random-ticking blocks in the section will no longer be represented correctly.
+
+New and fully replaced sections bypass setCount() because those branches continue. Their counts can remain constructor defaults or stale values even after raw array replacement.
+
+This can affect section emptiness tests, random ticking, serialization decisions, and mod behavior.
+
+The count calculation also treats every non-air ID as “solid,” which is not the semantic meaning of the internal non-empty/ticking counters.
+
+1.11 Lighting
+The queue exposes direct light-array operations and uses NMSRelighter. After queue tasks finish, NMSMappedFaweQueue.runTasks() schedules relighting asynchronously through TaskManager.IMP.async.
+
+That relighter accesses live chunk sections and invokes world lighting methods. This is another confirmed off-thread access path.
+
+The queue can call:
+
+world.func_147451_t,
+
+updateLightByType(Block, ...),
+
+updateLightByType(Sky, ...),
+
+direct NibbleArray writes.
+
+The overall approach is potentially useful, but it lacks a safe thread/ownership boundary and depends on vanilla-centric opacity/brightness lookups.
+
+1.12 Dirty/save state
+ForgeChunk_All.call() invokes setChunkModified() and sets sendUpdates; saveChunk() also calls setChunkModified().
+
+That is a correct and useful baseline, but it does not repair:
+
+stale heightmaps,
+
+stale section counts,
+
+tile entities lacking markDirty,
+
+lifecycle-dependent mod state outside the chunk,
+
+scheduled updates or companion structures maintained elsewhere.
+
+Setting hasEntities = true unconditionally is also suspicious because that flag does not mean “the chunk was edited.”
+
+1.13 Client synchronization
+The legacy queue already has a chunk refresh path which:
+
+identifies players watching the chunk,
+
+temporarily substitutes an empty section object for null sections,
+
+sends one or more S21PacketChunkData packets.
+
+It also has an S22PacketMultiBlockChange path for changed blocks.
+
+The current fork additionally registers ForgeChunkUpdater in pre-initialization. Command finalization snapshots getFaweChunks(), flushes, then calls that updater.
+
+Risks:
+
+queue end() may already send chunk packets, so the extra updater may duplicate traffic;
+
+the snapshot returned by getFaweChunks() needs guaranteed immutable/deep ownership across flush;
+
+every player is wrapped before the Forge queue filters by watcher, creating avoidable allocation;
+
+the updater exists only on command-finalization paths, not necessarily API edits, tools, undo, or other queue users;
+
+tile-entity-specific client packets are not handled like WorldEdit Enhanced’s multipart compatibility layer.
+
+1.14 Notifications, physics, and Forge hooks
+The raw fast path does not call, per block:
+
+breakBlock,
+
+onBlockAdded,
+
+normal neighbor notification,
+
+comparator update,
+
+Forge placement/removal hooks,
+
+scheduled tick registration,
+
+paired/multipart repair logic.
+
+EditSession.setBlock(..., ignorePhysics) simply calls the same fast extent path, so the boolean does not meaningfully distinguish side-effect policies.
+
+This is acceptable only for explicitly classified raw-safe edits. It is not acceptable as the unconditional default for arbitrary mod blocks.
+
+1.15 History and undo
+The session selects among disk-backed, rollback-optimized, CPU-optimized, and compressed memory histories.
+
+When history stages are combined, the queue captures the previous chunk before applying the new arrays. The fork has improved the legacy capture path to include extended block IDs, which is important for modded blocks.
+
+MemoryOptimizedHistory stores compressed segmented streams for blocks, biomes, entities, and tile changes and materializes byte arrays on close.
+
+Undo and redo re-enter the edit queue and flush it, so they inherit the same raw-write, lifecycle, tile, lighting, and threading concerns.
+
+1.16 Clipboard pasting, masks, patterns, and traversal
+Clipboard copy/paste uses ForwardExtentCopy and RegionVisitor; when a mapped queue is available, traversal can preload chunks ahead of the iterator. The clipboard operation explicitly chooses a queue-aware visitor.
+
+RegionVisitor uses a dual lead/trail iterator, preloads future chunks, processes blocks in unrolled groups, and suppresses iterator-termination exceptions for speed.
+
+Strengths:
+
+reduced iterator checks,
+
+chunk preloading,
+
+reusable mutable vectors in many hot paths,
+
+direct pattern application to extents,
+
+cuboid constant-block fast paths.
+
+Risks:
+
+catches of broad Throwable can hide real failures as if they were iterator exhaustion,
+
+cancel() is empty, so WorldEdit operation cancellation does not interrupt traversal.
+
+preloading may touch Minecraft chunk providers off-thread because commands commonly run asynchronously,
+
+masks and patterns that query live world state do so off-thread,
+
+queue/world reads can race with server ticks or chunk unloading.
+
+CachedMask is a worthwhile optimization for repeated mask tests, but it owns mutable non-thread-safe caches and vectors and must remain operation-local rather than shared between concurrent jobs.
+
+2. Reference Architecture Comparison
+2.1 Legacy FAWE Forge 1.7.10
+What is already retained
+The current Forge implementation is directly descended from the reference legacy implementation. It retains:
+
+chunk-local ForgeChunk_All buffers,
+
+direct ExtendedBlockStorage array merging,
+
+LSB/MSB block-ID storage,
+
+metadata nibble arrays,
+
+biome-array edits,
+
+tile/entity queues,
+
+combined history capture,
+
+custom lighting/relighting,
+
+chunk packet batching,
+
+queue time slicing,
+
+parallel chunk submission.
+
+Most platform files are identical or nearly identical to the legacy reference. The current fork’s material differences are concentrated in ForgeChunk_All, ForgeQueue_All, startup registration, player lookup, and minor scheduler changes.
+
+Current improvements over the legacy reference
+The current fork:
+
+converts the air sentinel back to combined zero when queried,
+
+clears stale metadata and extended-ID nibbles when writing air,
+
+reads MSB arrays while capturing history,
+
+adds reflection-name fallbacks for deobfuscated environments,
+
+uses the default Netty allocator,
+
+masks multi-block packet combined states,
+
+registers an additional command-finalization chunk updater.
+
+These changes address real defects, especially modded IDs and air cleanup.
+
+Legacy weaknesses still present
+The current implementation still carries forward the legacy architecture’s core hazards:
+
+live chunks mutated by worker threads,
+
+raw writes without lifecycle callbacks,
+
+async live-world relighting,
+
+weak tile creation,
+
+stale heightmaps,
+
+inaccurate section counts,
+
+broad exception swallowing,
+
+mutable global queue settings,
+
+unbounded or loosely bounded worker and queue behavior.
+
+The legacy implementation is therefore useful as an optimization reference but not a correctness authority.
+
+2.2 Modern FAWE reference
+Important limitation of the supplied tree
+The supplied ModernFAWESRC tree is primarily modern WorldEdit Forge platform/native-access code, not the full modern FAWE engine. It does not contain enough source to directly compare modern FAWE’s:
+
+queue processor,
+
+chunk batching engine,
+
+history database,
+
+clipboard engine,
+
+cancellation model,
+
+memory pressure controller,
+
+parallel region preprocessing.
+
+Claims about those absent subsystems would not be evidence-based, so they should be investigated from a complete modern FAWE source tree before implementation.
+
+Concepts visible and reasonably adaptable
+The modern Forge native-access layer explicitly separates:
+
+native block-state mutation,
+
+lighting,
+
+tile update,
+
+client notification,
+
+chunk dirty marking,
+
+neighbor notification,
+
+comparator updates,
+
+broader neighbor-state updates.
+
+The exact APIs cannot be backported, but the separation of side effects into an explicit policy is highly applicable to 1.7.10.
+
+Modern code also recognizes that some Minecraft-derived data cannot safely be read from arbitrary threads and publishes a periodically refreshed thread-safe cache instead. This supports the proposed snapshot/preprocessing model.
+
+Not directly portable
+Do not backport:
+
+modern BlockState/property registries,
+
+ChunkStatus,
+
+modern light managers,
+
+modern chunk tickets/location types,
+
+modern biome containers,
+
+modern side-effect API classes themselves,
+
+data-fixer infrastructure.
+
+Those depend heavily on newer Minecraft and WorldEdit abstractions.
+
+Disproportionate complexity
+A full emulation of modern chunk lifecycle/status and lighting architecture would bring little benefit to 1.7.10. A small 1.7.10-native side-effect policy and server-thread commit engine is preferable.
+
+2.3 WorldEdit Enhanced
+WorldEdit Enhanced should be treated as the primary reference for 1.7.10 WorldEdit/Forge compatibility.
+
+Normal block handling
+Enhanced writes through Chunk.func_150807_a, rather than directly replacing section arrays. It optionally records the previous ID, updates light, marks the block for client update, notifies neighbors, and repairs comparator output.
+
+This path is slower than raw array replacement but provides a valuable compatibility fallback because Chunk.func_150807_a executes substantially more native placement/removal behavior.
+
+Tile entities
+Enhanced:
+
+writes positional NBT,
+
+creates a tile entity with TileEntity.createAndLoadEntity,
+
+lets Forge Multipart replace normal creation,
+
+calls world.setTileEntity,
+
+sends the multipart description packet.
+
+That is significantly more correct than the current fork’s “look up an existing tile and call readFromNBT” behavior.
+
+Mod compatibility
+Enhanced registers special transform hooks for:
+
+Forge Multipart,
+
+ArchitectureCraft,
+
+Carpenter’s Blocks.
+
+It detects these mods during startup and registers the relevant block-transform behavior.
+
+The current fork’s hard-coded numeric rotation logic does not cover tile-NBT-based rotations for these mods.
+
+Coupling and API mismatch risks
+The current project depends on an older published WorldEdit Forge build while compiling a modified 6.1.3-snapshot-style core. Enhanced’s platform includes APIs and behavior not guaranteed in the old artifact:
+
+multipart-aware tile creation,
+
+transform hooks,
+
+updated Forge platform registration,
+
+mapping/data handling changes,
+
+command/network compatibility updates.
+
+The current fork also places its own com.sk89q.worldedit.forge.ForgePlayer into the output, creating class-ownership ambiguity with the dependency’s Forge classes.
+
+Before coding against Enhanced, the next pass should establish an explicit compatibility matrix of method and class signatures. Entire Enhanced classes should not simply be copied.
+
+3. Existing Strengths
+These systems should be retained and improved incrementally:
+
+Chunk-local batching. Global edits are grouped by chunk before mutation, avoiding a chunk lookup and full WorldEdit/Forge placement stack for every block.
+
+Section-oriented buffers. The per-section ID, metadata, and extended-ID arrays map well to 1.7.10 storage.
+
+Corrected extended-ID history. The fork’s previous-state capture includes the MSB nibble, which is essential for modded numeric IDs.
+
+Air cleanup. Clearing metadata and MSB data on air replacement prevents stale state from contaminating later blocks.
+
+Compressed history choices. Disk-backed and compressed in-memory histories are appropriate for large edits.
+
+Queue-aware traversal and chunk preloading. These can reduce synchronous chunk-lookup stalls once moved behind a safe server-thread ownership boundary.
+
+Primitive chunk map and last-chunk caching. These reduce boxing and map traffic in hot placement loops.
+
+TPS-aware queue scheduling. Time-budgeted commits are a sound concept, although timing, fairness, and ownership require revision.
+
+Batched network updates. Section or multi-block packets are far preferable to one update packet per block.
+
+Region and limit extent composition. Existing WorldEdit restrictions, history, and event stages should not be rewritten without a demonstrated need.
+
+4. Problems and Risks
+Confirmed critical problems
+Classification	Problem	Impact
+Concurrency risk / correctness bug	Parallel queue processing submits ForgeChunk_All.call() to worker threads.	Concurrent mutation of chunk arrays, entity lists, tile maps, and world state.
+Concurrency risk	Command bodies normally run asynchronously when invoked from the main thread.	Masks, patterns, clipboard/world reads, sessions, and chunk loading access Forge state off-thread.
+Concurrency risk	Relighting is scheduled asynchronously and accesses live chunks/world lighting.	Races with ticks, unloads, saves, and other edits.
+Correctness bug	Heightmap values only increase.	Removing top terrain leaves permanently stale column heights.
+Correctness bug	Partial-section ticking count is always set to zero.	Random-ticking blocks may cease functioning correctly.
+Correctness bug	New/full-replacement sections do not have counts recomputed.	Empty/non-empty and ticking state can remain wrong.
+Mod compatibility risk	Raw writes bypass block lifecycle and Forge hooks.	Paired blocks, machines, multiblocks, pipes, comparators, scheduled blocks, and coremod blocks can become invalid.
+Mod compatibility risk / correctness bug	Tile application does not reliably construct and install tile entities.	Blocks can exist without their required tile, with an invalid class, or with stale NBT.
+Failure recovery	ForgeChunk_All.call() catches every Throwable, logs it, and returns success-like completion.	Partially applied chunks can be committed and placed in history without a failed transaction state.
+Cancellation	RegionVisitor.cancel() is empty.	Cancellation cannot promptly stop region traversal.
+High-severity compatibility risks
+Hard-coded vanilla numeric-ID behavior in FastWorldEditExtent.
+
+No compatibility registry for custom blocks that require callbacks.
+
+No safe-mode placement policy.
+
+No multipart-aware tile creation or description packets.
+
+No block-transform hooks comparable to Enhanced.
+
+No lifecycle distinction between removing a tile block, changing its metadata, and replacing it with another tile block.
+
+No explicit handling of scheduled updates.
+
+No guarantee that unloaded chunks remain owned/loaded throughout preprocessing and commit.
+
+Live chunk references and mutable last-section caches have no single-thread ownership rule.
+
+Setting hasEntities = true on every touched chunk is semantically questionable.
+
+Performance problems
+Partial edits scan all 4096 positions of every touched section even when only a few blocks changed.
+
+setCount() performs repeated reflective field discovery for every partially written section; fields should be resolved once.
+
+Multi-block packet sizing sometimes walks every queued block once to count and again to serialize.
+
+ForgeChunkUpdater builds a wrapped player list for every command and every world before filtering chunk watchers.
+
+Packet synchronization may be duplicated between queue end() and command finalization.
+
+Many paths still use object vectors and generic visitor functions in hot loops, although several optimized integer paths already exist.
+
+Full chunk-history capture scans entire touched sections even for sparse changes.
+
+Memory control is based on coarse global heap checks rather than exact queue byte accounting.
+
+Calling System.gc() during pressure can produce a severe server stall.
+
+Architectural debt and obsolete assumptions
+Mixed local WorldEdit source plus multiple external WorldEdit versions.
+
+Reference Modern FAWE is incomplete for the requested queue/history comparisons.
+
+Global mutable parallel-thread settings.
+
+Queue stages do not form a clear transaction state machine.
+
+Broad exception catches conflate iterator completion, cancellation, and genuine errors.
+
+Completion tasks may run even following a failed or partial queue application.
+
+The ignorePhysics API does not select a different behavior.
+
+No explicit record of old/new block side-effect requirements in the queued change.
+
+5. Missing Improvements
+From legacy FAWE, retained but needing completion
+Finish the direct section writer rather than discarding it.
+
+Recompute all section counters correctly.
+
+Replace the monotonic heightmap update with exact affected-column recalculation.
+
+Preserve chunk packet batching, but choose one authoritative synchronization path.
+
+Keep combined history capture, but make it sparse where appropriate and transaction-aware.
+
+From modern native-access architecture
+Adapt the concept of explicit side-effect stages:
+
+set native block storage
+create/update/remove tile
+update height/counts
+update lighting
+mark chunk changed
+notify clients
+notify neighbors/comparators
+run optional lifecycle callbacks
+The modern reference demonstrates this separation even though its APIs are not portable.
+
+Also adapt the concept of publishing safe cached data to workers instead of permitting arbitrary live server queries.
+
+From WorldEdit Enhanced
+Native compatibility fallback through Chunk.func_150807_a.
+
+Tile construction from NBT and explicit world.setTileEntity.
+
+Forge Multipart override and description packets.
+
+comparator and neighbor repair when requested.
+
+mod-specific transform hooks for multipart/ArchitectureCraft/Carpenter’s Blocks.
+
+weak world references or explicit unloaded-world failure rather than retaining stale live objects.
+
+Enhanced’s placement and tile behavior provide concrete 1.7.10 reference implementations.
+
+6. Proposed Architecture
+6.1 Pipeline and ownership
+Phase A: server-thread snapshot
+On the server thread:
+
+validate session/world/player state,
+
+resolve target chunks,
+
+acquire a per-world commit coordinator,
+
+ensure required chunks are loaded,
+
+snapshot only required block, metadata, biome, and tile data,
+
+capture registry-derived compatibility information,
+
+issue an operation ID and cancellation token.
+
+Chunks must not be accessed by workers after this phase.
+
+Phase B: worker preprocessing
+Workers may operate only on immutable data:
+
+region coordinate generation,
+
+pure pattern evaluation,
+
+clipboard transforms,
+
+pure masks,
+
+result grouping by chunk/section,
+
+memory estimation,
+
+packet/dirty-mask planning,
+
+history encoding.
+
+Any mask or pattern that requires live world, tile, entity, or Forge state must either:
+
+be evaluated during snapshot,
+
+use a snapshot extent,
+
+or stay on the server thread.
+
+Phase C: server-thread commit
+A single per-world coordinator commits bounded batches on the server thread:
+
+validate world/chunk ownership and cancellation state,
+
+capture final old state needed for history,
+
+classify each change,
+
+apply raw-safe changes section-locally,
+
+apply compatibility changes through native placement,
+
+reconcile tiles,
+
+recompute counts and heightmap columns,
+
+run lighting work,
+
+mark dirty,
+
+send one network update per chunk,
+
+publish history only after successful commit.
+
+No ExtendedBlockStorage, tile map, entity list, chunk provider, or world method should be invoked from workers.
+
+6.2 Compatibility classification
+Use an operation-local classifier with conservative defaults.
+
+Raw-safe
+Candidate conditions:
+
+block is registered and stable,
+
+old and new blocks have no tile entities,
+
+no configured lifecycle requirement,
+
+no known multipart/multiblock behavior,
+
+no scheduled-tick requirement,
+
+no compatibility hook veto,
+
+requested side effects allow suppression.
+
+Apply via direct section arrays.
+
+Native-safe batched
+For blocks that do not need full external callbacks but require native chunk bookkeeping, use Chunk.func_150807_a on the server thread, informed by Enhanced.
+
+Lifecycle-required
+Use the closest appropriate native world/chunk placement path and explicitly request:
+
+removal callbacks,
+
+placement callbacks,
+
+neighbor/comparator changes,
+
+lighting,
+
+client notification.
+
+This category should include known mod machines, paired blocks, multipart containers, and compatibility-registry entries.
+
+Explicit safe mode
+A configuration/session flag should route all changes through the compatible native path. It must be available per command/API operation and be suitable for diagnosing mod incompatibilities.
+
+Unknown mod blocks should default conservatively until classified or explicitly allowed.
+
+6.3 Tile-entity lifecycle
+For each changed position:
+
+inspect old and new block tile capability,
+
+serialize old NBT for history before removal,
+
+invalidate/remove the old tile when the block type changes,
+
+create the new tile from normalized NBT,
+
+allow compatibility hooks to override construction,
+
+set world/coordinates,
+
+call world.setTileEntity,
+
+call markDirty,
+
+send the appropriate normal or multipart description packet,
+
+verify block/tile compatibility.
+
+Metadata-only changes to the same tile block should not blindly destroy the tile.
+
+NBT should be copied once at the worker boundary and normalized once at commit.
+
+6.4 Section and height finalization
+For every touched section:
+
+derive non-empty count from the final IDs,
+
+derive ticking count using the actual block’s getTickRandomly() or equivalent 1.7.10 property,
+
+cache reflective counter fields once,
+
+assign correct counters for new, partial, and fully replaced sections,
+
+null a section only when genuinely empty and safe to do so.
+
+For every touched (x,z) column:
+
+recompute the heightmap from the highest potentially affected point downward using the final block opacity semantics,
+
+permit both increases and decreases,
+
+update precipitation-related cached height if necessary for 1.7.10,
+
+include neighboring columns where lighting propagation requires them.
+
+6.5 Lighting
+Lighting work should be split into:
+
+worker-side identification of dirty positions/columns only,
+
+server-thread application to live light arrays/world methods.
+
+Support policies:
+
+none — explicit unsafe/performance mode,
+
+changed blocks/columns — default fast mode,
+
+full affected chunks plus border — compatibility mode.
+
+Packets must be sent after lighting is finalized when delayed packet sending is enabled.
+
+6.6 History
+Retain compressed history, but make commit ownership explicit:
+
+history records are staged per chunk,
+
+only successfully committed chunks enter the final history,
+
+failed chunks are marked and reported,
+
+cancellation cannot produce a history claiming uncommitted changes,
+
+sparse edits store sparse old/new states,
+
+dense edits may use section snapshots,
+
+tile NBT is captured exactly once,
+
+undo uses the same compatibility classifier and server-thread commit engine.
+
+6.7 Queue bounds and failure recovery
+Each operation should track:
+
+estimated queued bytes,
+
+chunk count,
+
+block count,
+
+history bytes,
+
+clipboard/snapshot bytes,
+
+state: preparing, ready, committing, completed, cancelled, failed.
+
+Apply configurable per-player and global bounds. Backpressure should pause preprocessing rather than relying on System.gc().
+
+On failure:
+
+stop scheduling later chunks,
+
+preserve already committed history,
+
+report exactly which chunks committed,
+
+avoid running success callbacks,
+
+optionally offer rollback of the committed prefix,
+
+release chunk ownership and snapshots deterministically.
+
+7. Prioritized Implementation Plan
+Critical correctness
+7.1 Enforce server-thread world mutation
+Files:
+DefaultFaweQueueMap.java, SetQueue.java, ForgeChunk_All.java, NMSMappedFaweQueue.java, ForgeTaskMan.java
+
+Change: Remove worker execution of FaweChunk.call() for Forge queues. Make queue commit and relight execute only on the server thread.
+
+Why: Current worker tasks mutate live Minecraft objects.
+
+Reference: Modern thread-safe cache concept; Minecraft/Forge ownership requirements.
+
+Regression risks: Reduced apparent throughput until batching is optimized; longer individual tick slices if time budgeting is wrong.
+
+Manual tests: Parallel-thread settings 1, 2, 4; simultaneous edits; chunk unload attempts; server shutdown during a queued edit.
+
+7.2 Correct heightmaps
+Files:
+ForgeChunk_All.java, ForgeQueue_All.java, CharFaweChunk.java
+
+Change: Replace monotonic byte-map merging with dirty-column tracking and exact recomputation.
+
+Why: Terrain removal currently leaves stale heights.
+
+Regression risks: Incorrect opacity treatment for mod blocks; extra commit time.
+
+Manual tests: Remove/build towers, transparent tops, leaves, mod glass, lighting across section boundaries.
+
+7.3 Correct section counters
+Files:
+ForgeChunk_All.java, ForgeQueue_All.java
+
+Change: Recompute non-empty and ticking counts in every section path; cache reflected fields once.
+
+Why: Current counts are missing or incorrect.
+
+Regression risks: Reflection mapping differences under deobfuscated/coremod environments.
+
+Manual tests: Random-ticking crops/leaves/mod blocks, all-air sections, full section replacement, save/reload.
+
+7.4 Replace tile handling
+Files:
+ForgeChunk_All.java, ForgeQueue_All.java, new small Forge tile helper/compatibility interface
+
+Change: Explicitly remove, create, install, dirty, and synchronize tile entities.
+
+Why: Current path cannot reliably create tiles.
+
+Reference: WorldEdit Enhanced TileEntityUtils.
+
+Regression risks: Malformed NBT; mods requiring custom factories; multipart version differences.
+
+Manual tests: chests, furnaces, signs, command blocks where available, mod machines, multipart tiles, paired tile structures, undo/paste/save/reload.
+
+7.5 Propagate failures
+Files:
+ForgeChunk_All.java, DefaultFaweQueueMap.java, SetQueue.java, CommandManager.java
+
+Change: Stop swallowing commit exceptions; attach failures to operation state and suppress success callbacks.
+
+Why: Partial edits currently masquerade as completion.
+
+Regression risks: Previously hidden mod exceptions become visible.
+
+Manual tests: Deliberately invalid tile NBT, world unload, chunk-load failure, forced exception in compatibility hook.
+
+High-value performance
+7.6 Sparse-versus-dense section commits
+Files:
+ForgeChunk_All.java, CharFaweChunk.java
+
+Change: Track a per-section dirty index list or bitset. Use sparse iteration below a threshold and 4096-cell merge for dense sections.
+
+Why: A one-block change currently scans an entire touched section.
+
+Regression risks: More queue memory and duplicate-index handling.
+
+Manual tests: sparse replace, dense set, repeated writes to one coordinate, empty-section creation.
+
+7.7 Single packet finalizer
+Files:
+NMSMappedFaweQueue.java, ForgeQueue_All.java, ForgeChunkUpdater.java, CommandManager.java
+
+Change: Select one queue-owned synchronization path. Choose multi-block versus section/chunk packet by density and include tile packets.
+
+Why: Avoid duplicate sends and command-only synchronization.
+
+Regression risks: Ghost blocks or missing biome/tile updates.
+
+Manual tests: nearby and distant watchers, join during edit, cleared sections, IDs above 255, biome changes, undo.
+
+7.8 Exact memory accounting and backpressure
+Files:
+queue map/chunk buffers, SetQueue.java, settings
+
+Change: Estimate allocated section arrays, dirty masks, NBT, snapshots, and history bytes; stop producer growth at configured bounds.
+
+Why: Coarse heap checks and System.gc() are unpredictable.
+
+Regression risks: Premature throttling or deadlock between producer and committer.
+
+Manual tests: low-heap server, huge paste, several simultaneous users, cancellation under pressure.
+
+Compatibility
+7.9 Add side-effect/compatibility policy
+Files:
+FastWorldEditExtent.java, EditSessionBuilder.java, queue interfaces, Forge compatibility package
+
+Change: Replace the numeric-ID switch as the primary policy with registry/block-instance classification and per-operation mode.
+
+Why: Mod behavior cannot be inferred from vanilla numeric IDs.
+
+Reference: Modern native-access side-effect separation and Enhanced native placement.
+
+Regression risks: Misclassification; callback storms.
+
+Manual tests: terrain, redstone/comparators, fluids, falling blocks, plants, doors/beds, pipes, machines, multipart, coremod blocks.
+
+7.10 Enhanced transform hooks
+Files:
+clipboard transform integration and a Forge hook registry
+
+Change: Adapt interfaces for Forge Multipart, ArchitectureCraft, and Carpenter’s Blocks without importing the reference tree wholesale.
+
+Why: Tile-NBT-based orientation does not follow vanilla metadata transforms.
+
+Reference: WorldEdit Enhanced startup hook registration.
+
+Regression risks: Optional-mod class loading; differing mod versions.
+
+Manual tests: rotated/mirrored copy-paste for each installed mod.
+
+Architecture cleanup
+7.11 Resolve WorldEdit source ownership
+Files:
+core/build.gradle, forge1710/build.gradle, source package inventory
+
+Change: Document which WorldEdit classes are fork-owned and align the Forge dependency to the intended Enhanced-compatible API in a later dependency pass.
+
+Why: Current local 6.1.3-style core plus 6.1.1 Forge binary is fragile.
+
+Regression risks: Binary incompatibility and duplicate classes.
+
+Manual tests: startup, command registration, sessions, CUI, clipboard, permissions, all platform adapters.
+
+7.12 Operation transaction state
+Files:
+queue interfaces, SetQueue, EditSession, command finalization
+
+Change: Replace loose queue stages with explicit operation states, cancellation token, error, and committed-chunk list.
+
+Why: Completion, cancellation, and partial failure are currently ambiguous.
+
+7.13 Stop using broad Throwable for iterator completion
+Files:
+RegionVisitor.java and similar visitors
+
+Change: Use hasNext() in correctness-sensitive paths or catch only NoSuchElementException; check cancellation periodically.
+
+Why: Current implementation hides genuine mask/pattern/runtime failures.
+
+Optional/future optimization
+Immutable chunk snapshots for world-dependent masks.
+
+Parallel pure pattern and transform preprocessing.
+
+Dense section history snapshots.
+
+Reusable per-thread scratch buffers.
+
+Packet encoding prepared off-thread from immutable committed results, with the actual send on the server thread.
+
+Specialized cuboid/palette paste kernels.
+
+Per-world fair scheduling across players.
+
+Optional offline MCA edits, kept strictly separate from loaded-world mutation.
+
+8. Benchmark Plan
+Environment
+Use the same:
+
+Java 8 runtime,
+
+Forge build,
+
+JVM heap and GC flags,
+
+world seed,
+
+view distance,
+
+player positions,
+
+mod list,
+
+lighting settings,
+
+history mode,
+
+queue settings.
+
+Run a warm-up before measurements. Restart or restore the world between variants.
+
+Workloads
+Workload	Suggested scale	Purpose
+Dense //set stone	16M–64M blocks	Best-case raw terrain throughput
+Sparse //replace	5–10% match rate over 16M blocks	Read/mask and sparse-section cost
+Metadata-heavy set	wool/log/stairs variants	Metadata preservation
+Extended-ID set/replace	representative ID >255	MSB correctness and history
+Clipboard paste	256³, air included/excluded	transform, clipboard, NBT, queue allocation
+Rotated clipboard	same volume	pattern/transform overhead
+Undo/redo	each workload	history decode and commit cost
+Many chunks, few blocks	one block in thousands of chunks	chunk lookup and sparse finalization
+Empty-section creation	fill sections previously null	allocation and counter correctness
+Section clearing	remove complete sections	null section, packets, height/light
+Tile-heavy paste	chests/signs/mod machines	NBT and tile lifecycle
+Mixed mod blocks	pipes, multipart, machines, paired structures	compatibility fallback
+Biome edit	hundreds/thousands of chunks	biome write/save/client cost
+Simultaneous edits	2–4 users	fairness, memory, ownership
+Metrics
+Record:
+
+wall-clock operation time,
+
+computation time,
+
+queue wait time,
+
+commit time,
+
+maximum and 95th/99th percentile server tick time,
+
+longest single tick,
+
+blocks per second,
+
+chunks and sections per second,
+
+queue peak bytes,
+
+history bytes,
+
+heap before/peak/after,
+
+explicit/full-GC count and pause time,
+
+chunk-load count and time,
+
+packets and bytes sent,
+
+relight time,
+
+undo/redo time,
+
+number of compatibility-fallback blocks,
+
+number of failed/partially committed chunks.
+
+The key success criterion should not be maximum worker throughput alone. It should be high block throughput without unacceptable server-thread stalls and without corrupting modded world state.
+
+9. Manual Regression Test Matrix
+Area	Scenario	Expected result
+Basic blocks	Set/replace air, stone, glass, slabs, stairs, logs	Exact IDs/data after save/reload
+Extended IDs	Edit blocks with IDs above 255	Correct block before and after undo/reload
+Metadata	All metadata 0–15 where valid	No truncation or stale metadata
+Empty sections	Create, partially fill, fully fill, clear	Correct section presence and counts
+Heightmap	Raise and remove highest blocks	Height decreases and increases correctly
+Lighting	Opaque, transparent, emitting blocks	No black columns, leaks, or stale light after reload
+Random ticks	Crops, leaves, random-ticking mod blocks	Continue ticking after edits
+Tiles	Chest, furnace, sign, spawner	Correct NBT, inventories, text, behavior
+Tile replacement	Tile→air, tile→tile, tile→normal	Old tile removed; correct new tile installed
+Multipart	Paste/remove/rotate multipart container	Parts retained and synchronized
+Mod machines	Paste and undo representative machines	Valid tile class, orientation, network membership
+Paired blocks	doors, beds, multiblocks	Either safely reconstructed or routed through safe mode
+Redstone	comparators, repeaters, redstone blocks	Correct neighbor/comparator state
+Fluids/falling blocks	water/lava/sand/gravel	Behavior matches selected side-effect mode
+Biomes	Set biome, leave/rejoin, reload	Correct biome and client appearance
+Packets	Watch chunk during dense/sparse edit	No ghost blocks; no duplicate visible transitions
+Watchers	Two players, one watching and one distant	Updates sent only where appropriate
+Clipboard	Air/no-air, rotate/mirror, entities/tiles	Correct placement and NBT
+History	Undo/redo all above cases	Exact old/new state including tile NBT
+Cancellation	Cancel during prepare and commit	Prompt stop; reported committed prefix; valid history
+Failure	Invalid NBT or forced hook error	Explicit failure, no false success
+Unloaded chunks	Edit across unloaded boundary	Controlled loading on server thread; no race
+Save/reload	Restart after every major workload	Persisted state matches in-memory state
+Concurrent edits	Overlap and non-overlap	Deterministic ownership, no lost updates
+Low memory	Large paste near limit	Backpressure/cancellation, no crash or corrupt partial history
+Safe mode	Repeat modded tests in compatibility mode	Native behavior prioritized over throughput
+Final recommendation
+The next coding pass should begin with thread ownership, section counts, heightmaps, and tile lifecycle, not with additional micro-optimizations. Until those are corrected, increasing queue parallelism or adding more raw-write paths would increase the probability and speed of world corruption.
+
+The raw section writer remains worth preserving for demonstrably safe terrain edits. The target should be a hybrid engine:
+
+pure computation may be parallel,
+
+live Minecraft/Forge mutation is server-thread owned,
+
+raw writes are explicitly classified,
+
+unsafe or unknown blocks use a compatibility fallback,
+
+each chunk is finalized exactly once for counts, height, light, dirty state, history, and packets.
+
+No files were modified, no tests were added, no dependencies were changed, and no binaries were compiled. In accordance with the investigation-only constraint, there was no commit, changelog entry, or pull request.
+
+Investigation checks
+
