@@ -30,6 +30,11 @@ import java.util.concurrent.TimeUnit;
 
 public abstract class MappedFaweQueue<WORLD, CHUNK, CHUNKSECTIONS, SECTION> implements LightingExtent, FaweQueue {
 
+    /** Whether buffered chunks may be committed by the shared worker pool. */
+    public boolean supportsParallelChunkExecution() {
+        return true;
+    }
+
     private WORLD impWorld;
 
     private IFaweQueueMap map;

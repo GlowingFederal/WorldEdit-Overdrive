@@ -147,6 +147,9 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
 
     @Override
     public ForgeChunk_All call() {
+        if (!Fawe.isMainThread()) {
+            throw new IllegalStateException("Forge chunk commits must run on the server thread");
+        }
         net.minecraft.world.chunk.Chunk nmsChunk = this.getChunk();
         nmsChunk.setChunkModified();
         nmsChunk.hasEntities = true;
@@ -159,15 +162,12 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
             Map<ChunkPosition, TileEntity> tiles = nmsChunk.chunkTileEntityMap;
             List<Entity>[] entities = nmsChunk.entityLists;
 
-            // Set heightmap
-            getParent().setHeightMap(this, heightMap);
-
             // Remove entities
             for (int i = 0; i < 16; i++) {
                 int count = this.getCount(i);
                 if (count == 0) {
                     continue;
-                } else if (count >= 4096) {
+                } else if (isFullySpecified(i)) {
                     entities[i].clear();
                 } else if (!getParent().getSettings().EXPERIMENTAL.KEEP_ENTITIES_IN_BLOCKS) {
                     char[] array = this.getIdArray(i);
@@ -238,10 +238,9 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                 getParent().getChangeTask().run(previous, this);
             }
             // Trim tiles
-            Set<Map.Entry<ChunkPosition, TileEntity>> entryset = tiles.entrySet();
-            Iterator<Map.Entry<ChunkPosition, TileEntity>> iterator = entryset.iterator();
-            while (iterator.hasNext()) {
-                Map.Entry<ChunkPosition, TileEntity> tile = iterator.next();
+            Map<Short, NBTTagCompound> preservedTiles = new java.util.HashMap<>();
+            Collection<ChunkPosition> tilesToRemove = new ArrayList<>();
+            for (Map.Entry<ChunkPosition, TileEntity> tile : new ArrayList<>(tiles.entrySet())) {
                 ChunkPosition pos = tile.getKey();
                 int lx = pos.chunkPosX & 15;
                 int ly = pos.chunkPosY;
@@ -253,11 +252,15 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                 }
                 int k = FaweCache.getJ(ly, lz, lx);
                 if (array[k] != 0) {
-                    synchronized (ForgeQueue_All.class) {
-                        tile.getValue().invalidate();
-                        iterator.remove();
-                    }
+                    NBTTagCompound oldTag = new NBTTagCompound();
+                    tile.getValue().writeToNBT(oldTag);
+                    preservedTiles.put((short) (lx << 12 | lz << 8 | ly), oldTag);
+                    tilesToRemove.add(pos);
                 }
+            }
+            for (ChunkPosition pos : tilesToRemove) {
+                nmsWorld.removeTileEntity((getX() << 4) + (pos.chunkPosX & 15), pos.chunkPosY,
+                        (getZ() << 4) + (pos.chunkPosZ & 15));
             }
             // Efficiently merge sections
             for (int j = 0; j < sections.length; j++) {
@@ -285,8 +288,9 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                     if (extendedArray != null) {
                         section.setBlockMSBArray(extendedArray);
                     }
+                    getParent().updateSectionCounts(section);
                     continue;
-                } else if (count >= 4096) {
+                } else if (isFullySpecified(j)) {
                     if (count == countAir) {
                         sections[j] = null;
                         continue;
@@ -302,6 +306,7 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                     } else if (section.getBlockMSBArray() != null) {
                         Arrays.fill(section.getBlockMSBArray().data, (byte) 0);
                     }
+                    getParent().updateSectionCounts(section);
                     continue;
                 }
                 byte[] currentIdArray = section.getBlockLSBArray();
@@ -315,15 +320,11 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                 if (currentExtraArray == null && extendedArray != null) {
                     section.setBlockMSBArray(extendedArray);
                 }
-                int solid = 0;
                 char[] charArray = this.getIdArray(j);
                 for (int k = 0; k < newIdArray.length; k++) {
                     char combined = charArray[k];
                     switch (combined) {
                         case 0:
-                            if (currentIdArray[k] != 0) {
-                                solid++;
-                            }
                             continue;
                         case 1: { // sentinel for cleared air
                             currentIdArray[k] = 0;
@@ -339,7 +340,6 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                             continue;
                         }
                         default: {
-                            solid++;
                             currentIdArray[k] = newIdArray[k];
                             if (data) {
                                 if (FaweCache.hasData(combined >> 4)) {
@@ -373,8 +373,13 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
                         }
                     }
                 }
-                getParent().setCount(0, solid, section);
+                getParent().updateSectionCounts(section);
+                if (section.isEmpty()) {
+                    sections[j] = null;
+                }
             }
+
+            getParent().recomputeHeightMap(nmsChunk, this);
 
             // Set biomes
             if (this.biomes != null) {
@@ -392,23 +397,60 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
             int bx = this.getX() << 4;
             int bz = this.getZ() << 4;
 
-            for (Map.Entry<Short, CompoundTag> entry : tilesToSpawn.entrySet()) {
-                CompoundTag nativeTag = entry.getValue();
-                short blockHash = entry.getKey();
-                int x = (blockHash >> 12 & 0xF) + bx;
-                int y = (blockHash & 0xFF);
-                int z = (blockHash >> 8 & 0xF) + bz;
-                TileEntity tileEntity = nmsWorld.getTileEntity(x, y, z);
-                if (tileEntity != null) {
-                    NBTTagCompound tag = (NBTTagCompound) ForgeQueue_All.methodFromNative.invoke(null, nativeTag);
-                    tag.setInteger("x", x);
-                    tag.setInteger("y", y);
-                    tag.setInteger("z", z);
-                    tileEntity.readFromNBT(tag); // ReadTagIntoTile
+            for (int layer = 0; layer < ids.length; layer++) {
+                char[] changed = ids[layer];
+                if (changed == null) continue;
+                for (int index = 0; index < changed.length; index++) {
+                    if (changed[index] == 0) continue;
+                    int lx = FaweCache.getX(0, index);
+                    int ly = (layer << 4) + FaweCache.getY(0, index);
+                    int lz = FaweCache.getZ(0, index);
+                    int x = bx + lx;
+                    int z = bz + lz;
+                    net.minecraft.block.Block block = nmsWorld.getBlock(x, ly, z);
+                    int metadata = nmsWorld.getBlockMetadata(x, ly, z);
+                    short hash = (short) (lx << 12 | lz << 8 | ly);
+                    CompoundTag queuedTag = tilesToSpawn.get(hash);
+                    if (!block.hasTileEntity(metadata)) {
+                        if (queuedTag != null) {
+                            throw new IllegalStateException("Tile NBT supplied for non-tile block " + block + " at " + x + "," + ly + "," + z);
+                        }
+                        continue;
+                    }
+                    TileEntity expected = block.createTileEntity(nmsWorld, metadata);
+                    TileEntity tileEntity;
+                    if (queuedTag != null) {
+                        NBTTagCompound tag = (NBTTagCompound) ForgeQueue_All.methodFromNative.invoke(null, queuedTag);
+                        tag.setInteger("x", x);
+                        tag.setInteger("y", ly);
+                        tag.setInteger("z", z);
+                        tileEntity = getParent().createTileEntity(nmsWorld, tag);
+                    } else if (preservedTiles.containsKey(hash)) {
+                        NBTTagCompound tag = preservedTiles.get(hash);
+                        tag.setInteger("x", x);
+                        tag.setInteger("y", ly);
+                        tag.setInteger("z", z);
+                        tileEntity = getParent().createTileEntity(nmsWorld, tag);
+                        if (expected != null && !expected.getClass().isInstance(tileEntity)) {
+                            tileEntity = expected;
+                        }
+                    } else {
+                        tileEntity = expected;
+                    }
+                    if (tileEntity == null) {
+                        throw new IllegalStateException("Unable to create tile entity for " + block + " at " + x + "," + ly + "," + z);
+                    }
+                    nmsWorld.setTileEntity(x, ly, z, tileEntity);
+                    TileEntity installed = nmsWorld.getTileEntity(x, ly, z);
+                    if (installed != tileEntity || (expected != null && !expected.getClass().isInstance(tileEntity))) {
+                        throw new IllegalStateException("Incompatible tile entity for " + block + " at " + x + "," + ly + "," + z);
+                    }
+                    tileEntity.markDirty();
+                    getParent().sendMultipartDescription(nmsWorld, tileEntity);
                 }
             }
         } catch (Throwable e) {
-            MainUtil.handleError(e);
+            throw e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException("Failed to commit Forge chunk " + getX() + "," + getZ(), e);
         }
         return this;
     }
@@ -421,5 +463,14 @@ public class ForgeChunk_All extends CharFaweChunk<Chunk, ForgeQueue_All> {
             }
         }
         return false;
+    }
+
+    private boolean isFullySpecified(int layer) {
+        char[] changed = getIdArray(layer);
+        if (changed == null) return false;
+        for (char value : changed) {
+            if (value == 0) return false;
+        }
+        return true;
     }
 }

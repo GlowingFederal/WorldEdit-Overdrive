@@ -125,7 +125,7 @@ public class DefaultFaweQueueMap implements IFaweQueueMap {
                 boolean skip = parent.getStage() == SetQueue.QueueStage.INACTIVE;
                 int added = 0;
                 Iterator<Map.Entry<Long, FaweChunk>> iter = blocks.entrySet().iterator();
-                if (amount == 1) {
+                if (amount <= 1 || !parent.supportsParallelChunkExecution()) {
                     long start = System.currentTimeMillis();
                     do {
                         if (iter.hasNext()) {
@@ -133,10 +133,10 @@ public class DefaultFaweQueueMap implements IFaweQueueMap {
                             if (skip && chunk == lastWrappedChunk) {
                                 continue;
                             }
-                            iter.remove();
                             parent.start(chunk);
                             chunk.call();
                             parent.end(chunk);
+                            iter.remove();
                         } else {
                             break;
                         }
@@ -187,7 +187,8 @@ public class DefaultFaweQueueMap implements IFaweQueueMap {
                     }
                 }
             } catch (Throwable e) {
-                e.printStackTrace();
+                throw e instanceof RuntimeException ? (RuntimeException) e
+                        : new RuntimeException("Chunk queue commit failed", e);
             }
             return !blocks.isEmpty();
         }

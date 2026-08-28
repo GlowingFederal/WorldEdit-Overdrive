@@ -28,6 +28,17 @@ $ gradlew setupDecompWorkspace
 $ gradlew build
 ```
 
+## Forge 1.7.10 commit safety
+
+Live Forge chunk commits and their queued relighting are owned by the server thread. The
+queue remains chunk-buffered and tick-budgeted; only the final interaction with live
+Minecraft state is serialized. CPU-only edit preparation may still run asynchronously.
+
+The first correctness pass also recalculates vanilla section reference counts, affected
+height-map columns, and tile-entity lifecycles during commit. Operators upgrading an
+existing server should follow the checklist in
+[`docs/forge-1710-correctness-checklist.md`](docs/forge-1710-correctness-checklist.md).
+
 ## Contributing
 Have an idea for an optimization, or a cool feature?
  - I'll accept most PR's
