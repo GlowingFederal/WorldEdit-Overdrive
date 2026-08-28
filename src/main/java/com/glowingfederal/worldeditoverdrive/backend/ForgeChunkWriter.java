@@ -1,8 +1,6 @@
 package com.glowingfederal.worldeditoverdrive.backend;
 
 import cpw.mods.fml.common.FMLCommonHandler;
-import java.util.HashSet;
-import java.util.Set;
 import net.minecraft.block.Block;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.server.MinecraftServer;
@@ -34,7 +32,8 @@ public final class ForgeChunkWriter {
 
         Chunk chunk = world.getChunkFromChunkCoords(change.getChunkX(), change.getChunkZ());
         ExtendedBlockStorage[] storage = chunk.getBlockStorageArray();
-        Set<Integer> rawSections = new HashSet<Integer>();
+        int[] rawSectionMask = new int[1];
+        int[] applicationCounts = new int[2]; // raw, native
         int touchedSections = 0, denseSections = 0, sectionMask = 0;
         int biomeChanges = 0, affectedColumns = 0;
         int[] changedTiles = new int[1];
@@ -46,11 +45,13 @@ public final class ForgeChunkWriter {
             touchedSections++;
             if (section.isDense()) denseSections++;
             sectionMask |= 1 << sectionY;
-            commitSection(world, chunk, storage, change, sectionY, section, policy, rawSections, oldTiles, changedTiles);
+            commitSection(world, chunk, storage, change, sectionY, section, policy,
+                    rawSectionMask, applicationCounts, oldTiles, changedTiles);
         }
 
         // Vanilla recalculation is intentionally limited to sections touched through direct arrays.
-        for (Integer sectionY : rawSections) {
+        for (int sectionY = 0; sectionY < 16; sectionY++) {
+            if ((rawSectionMask[0] & 1 << sectionY) == 0) continue;
             ExtendedBlockStorage section = storage[sectionY];
             if (section != null) {
                 section.removeInvalidBlocks();
@@ -78,12 +79,14 @@ public final class ForgeChunkWriter {
         chunk.setChunkModified();
         chunk.sendUpdates = true;
         return new ChunkCommitResult(change.getChangedBlockCount(), touchedSections, affectedColumns,
-                changedTiles[0], biomeChanges, denseSections, sectionMask, change.estimatedBytes());
+                changedTiles[0], biomeChanges, denseSections, sectionMask,
+                affectedColumns == 0 ? 0 : sectionMask, applicationCounts[0], applicationCounts[1],
+                change.estimatedBytes());
     }
 
     private void commitSection(final WorldServer world, final Chunk chunk, final ExtendedBlockStorage[] storage,
             final PreparedChunkChange change, final int sectionY, SectionChange changes,
-            final SideEffectPolicy policy, final Set<Integer> rawSections,
+            final SideEffectPolicy policy, final int[] rawSectionMask, final int[] applicationCounts,
             final OldTileSnapshotSink oldTiles, final int[] changedTiles) {
         changes.forEach(new SectionChange.Visitor() {
             @Override public void visit(int index, int packedState) {
@@ -102,13 +105,17 @@ public final class ForgeChunkWriter {
                         && classifier.isRawSafe(world, x, y, z, old, oldMetadata, next, state.getMetadata());
                 if (raw) {
                     writeRaw(storage, sectionY, localX, localY, localZ, next, state.getMetadata(), !world.provider.hasNoSky);
-                    rawSections.add(sectionY);
+                    rawSectionMask[0] |= 1 << sectionY;
+                    applicationCounts[0]++;
                 } else if (!world.setBlock(x, y, z, next, state.getMetadata(), 2)) {
                     Block actual = world.getBlock(x, y, z);
                     int actualMetadata = world.getBlockMetadata(x, y, z);
                     if (actual != next || actualMetadata != state.getMetadata()) {
                         throw new IllegalStateException("native placement rejected at " + x + ',' + y + ',' + z);
                     }
+                    applicationCounts[1]++;
+                } else {
+                    applicationCounts[1]++;
                 }
                 if (next.hasTileEntity(state.getMetadata()) && tileAt(change, localX, y, localZ) == null) {
                     installDefaultTile(world, x, y, z, next, state.getMetadata());
