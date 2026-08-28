@@ -22,7 +22,7 @@ public final class PasteHookStatus {
     public static final AtomicLong pasteDeferredFailed=new AtomicLong();
     public static final AtomicLong pasteAccelerationFallbacks=new AtomicLong();
     public static final AtomicLong pastePlanningActive=new AtomicLong(),pasteCommitActive=new AtomicLong();
-    public static final AtomicLong pastePreparedBlocks=new AtomicLong(),pastePlannedBlocks=new AtomicLong(),pasteCommittedBlocks=new AtomicLong();
+    public static final AtomicLong pastePreparedBlocks=new AtomicLong(),pastePlannedBlocks=new AtomicLong(),pasteSubmittedBlocks=new AtomicLong(),pasteCommittedBlocks=new AtomicLong();
     public static final AtomicLong lastPastePrepareMillis=new AtomicLong(),lastPastePlanMillis=new AtomicLong(),lastPasteCommitMillis=new AtomicLong();
     public static RuntimeShape runtimeShape(){return runtimeShape.get();}
     public static boolean forwardExtentCopySeen(){return runtimeShape.get()!=RuntimeShape.NOT_SEEN;}

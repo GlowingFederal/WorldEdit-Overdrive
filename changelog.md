@@ -302,3 +302,18 @@ Changes are listed oldest to newest.
 - Added acceleration fallback, planning/commit activity, block count, and phase
   timing diagnostics, and documented the mandatory real `//paste`, status,
   multi-tick, `//paste -a`, semantic-fallback, and `//undo` verification matrix.
+
+## (ab091bf Flush deferred paste batches before success)
+
+- Fixed retained Enhanced 6.3.0 `EditSession` finalization by explicitly
+  flushing deferred vanilla traversal before native history is remembered, so
+  queued blocks are applied alongside entities and tile data.
+- Changed accelerated commits to flush at every bounded batch, count submitted
+  writes separately, and count changed blocks as committed only after the
+  corresponding flush succeeds.
+- Included queue-drain time in commit diagnostics and moved accelerated success
+  after final flush, native history retention, and success feedback; flush
+  failures now remain deferred failures rather than false acceleration success.
+- Documented the exact Enhanced command/session lifecycle, the reason entities
+  were visible while blocks were not, undo/redo ordering, the mandatory live
+  regression matrix, and the still-deferred transform/tile/entity capabilities.
