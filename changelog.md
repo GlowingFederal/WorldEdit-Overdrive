@@ -235,3 +235,18 @@ Changes are listed oldest to newest.
   worker waits are unsafe.
 - Added focused class matching, runtime shape, diagnostic transition, lifecycle,
   illegal-transition, cancellation, failure, and concurrent completion tests.
+
+## (a7100aa Reconcile Stage 5C with Enhanced paste shape)
+
+- Recorded that live Enhanced 6.3.0 runtime discovery exposed the invalid
+  `copyEntities` field assumption, then audited the actual source and operation
+  layout including entity, biome, mask, removal, and traversal semantics.
+- Corrected the strict compatibility gate to require the real fields,
+  descriptors, visibility, class/interface structure, and `resume` descriptor,
+  with contextual deterministic mismatch diagnostics.
+- Reconciled the paste adapter with the exact standard
+  `BlockTransformExtent -> Clipboard` graph: entity copying is unconditional,
+  biome copying is absent, ignore-air is clipboard-bound mask state, and custom,
+  mutating, already-started, or otherwise ambiguous graphs fall back precisely.
+- Updated runtime-shape tests and Stage 5C documentation. Paste interception,
+  async submission, traversal suppression, and world mutation remain inactive.

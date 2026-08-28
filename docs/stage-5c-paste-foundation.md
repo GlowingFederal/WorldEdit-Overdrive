@@ -25,11 +25,45 @@ accepts the exact value in either argument and normalizes slash form because
 coremod callers/tests may expose an internal name. It does not suffix-match or
 accept another `Operation` implementation.
 
-On its first
-`resume`, Enhanced constructs either a `RegionVisitor` using its block-copy
-function or a backwards transform copy, completes blocks, then completes an
-`EntityVisitor` for each repetition. The command invokes
-`Operations.completeLegacy(Operation)`.
+The audited Enhanced 6.3.0 class declares the following paste-relevant private
+instance fields (the first five are also `final`):
+
+| Name | JVM descriptor | Meaning |
+| --- | --- | --- |
+| `source` | `Lcom/sk89q/worldedit/extent/Extent;` | block and entity source |
+| `destination` | `Lcom/sk89q/worldedit/extent/Extent;` | block/entity creation target |
+| `region` | `Lcom/sk89q/worldedit/regions/Region;` | traversal and entity-query bounds |
+| `from`, `to` | `Lcom/sk89q/worldedit/Vector;` | source and destination anchors |
+| `repetitions` | `I` | repetitions remaining |
+| `sourceMask` | `Lcom/sk89q/worldedit/function/mask/Mask;` | block filter |
+| `removingEntities` | `Z` | whether copied source entities are removed |
+| `sourceFunction` | `Lcom/sk89q/worldedit/function/RegionFunction;` | optional post-copy source mutation |
+| `transform`, `currentTransform` | `Lcom/sk89q/worldedit/math/transform/Transform;` | configured and repetition-accumulated transforms |
+| `lastVisitor` | `Lcom/sk89q/worldedit/function/visitor/RegionVisitor;` | prior block traversal awaiting affected-count accounting |
+| `affected` | `I` | accumulated affected block count |
+
+All fields are declared directly by `ForwardExtentCopy`; it extends `Object`
+and implements only `Operation`. There are no destination-mask,
+`filterFunction`, `copyEntities`, or `copyBiomes` fields in this artifact.
+
+On each `resume`, Enhanced constructs `ExtentBlockCopy`, wraps it in a
+`RegionMaskingFilter`, optionally combines the filter with `sourceFunction`,
+and queues its `RegionVisitor` before an `EntityVisitor`. Entity visitation is
+**unconditional**: `source.getEntities(region)` supplies the entities and an
+`ExtentEntityCopy(from, destination, to, currentTransform)` transforms their
+locations and calls `destination.createEntity`. `removingEntities` controls
+source removal, not whether copying occurs. Thus the old `copyEntities` gate
+was an assumption imported from a different WorldEdit layout. A destination
+`EditSession` receives entity creation through its normal extent/history chain;
+future acceleration must retain that behavior and ordering after blocks for
+every repetition.
+
+Enhanced 6.3.0 `ForwardExtentCopy.resume()` contains no biome read, write,
+function, or visitor. Standard `PasteBuilder` exposes no entity, biome, or
+repetition setters: standard paste therefore always copies entities, never
+copies biomes, and starts with one repetition. Biome-enabled behavior cannot be
+represented by this standard graph and remains vanilla/unsupported rather than
+being inferred.
 
 The runtime artifact itself is treated independently: the launch transformer
 requires the exact class, superclass, sole interface, field names and JVM
@@ -87,13 +121,24 @@ does not increment invocation or fallback counters.
 ## Strict operation adapter
 
 `PasteOperationAdapter` only accepts the concrete Enhanced
-`ForwardExtentCopy`, a `Clipboard` source (directly or through PasteBuilder's
-standard `BlockTransformExtent` metadata wrapper), an `EditSession` destination, no
-source mutation/filter, and the standard clipboard region and origin identity.
-It extracts both origins, transform, repetitions, entity/biome flags, and the
-special `ExistingBlockMask` representation of ignore-air. Custom subclasses,
-extent chains, masks, and filters receive precise reasons rather than being
-mistaken for standard paste graphs.
+`ForwardExtentCopy`, the exact standard `BlockTransformExtent -> Clipboard`
+source graph, an exact `EditSession` destination, no source mutation or entity
+removal, and the standard clipboard region/origin identity. It also requires an
+unstarted traversal (`currentTransform` and `lastVisitor` null, `affected`
+zero), and requires the block-state wrapper and coordinate copy to hold the
+same transform object. Ignore-air is recovered only from an
+`ExistingBlockMask` bound to that clipboard; the sole other accepted mask is
+the `Masks.alwaysTrue()` singleton.
+
+The requirement classification is: source, destination, region, anchors,
+repetitions, source mask/function, transform, removal flag, and traversal state
+are `REQUIRED_DIRECT_FIELD`; the clipboard and ignore-air setting are
+`DERIVABLE_FROM_STANDARD_GRAPH`; `copyEntities`, `copyBiomes`, and
+`filterFunction` are `NOT_PRESENT_IN_ENHANCED_6_3_0`; custom wrappers,
+subclasses, masks, source mutation/removal, already-started traversal, and
+biome-copy graphs are `UNSUPPORTED`. Entity and biome values exposed by the
+adapter are consequently the verified constants `true` and `false`, not
+reflected or guessed booleans.
 
 This strictness is intentional. The adapter is not connected to mutation yet,
 so no paste can be partially accelerated by this slice.
