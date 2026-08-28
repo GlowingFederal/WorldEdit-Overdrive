@@ -220,8 +220,8 @@ command stack which has already returned.
 Status exposes `pasteDeferredActive`, `pasteDeferredCompleted`,
 `pasteDeferredFailed`, and `lastPasteDeferredReason`, in addition to hook,
 bridge, fallback, and shape fields. Installed transformation makes
-`pasteHookInstalled=true` and `pasteBytecodeModified=true`. The separate
-`pasteAccelerated` count remains zero.
+`pasteHookInstalled=true` and `pasteBytecodeModified=true`. The accelerated
+slice adds the more detailed counters described below.
 
 Every bridge attempt also publishes `lastPasteGraphDiagnostic`. It lists only
 the known paste fields and the one standard source delegate (source,
@@ -235,9 +235,10 @@ reject clause.
 
 Select and copy a visible region, move the placement point, run `//paste`, then
 run `/overdrive status`. `pasteBridgeInvocations` must increment; either active
-is briefly nonzero or completed increments after the END tick; fallback remains
-zero and accelerated remains zero. Run `//undo` and verify the pasted blocks and
-entities undo through native history. Repeat with `//paste -a`: the standard
+is briefly nonzero or completed increments after the END tick. A supported
+identity block-only paste increments accelerated; semantic fallback does not.
+Run `//undo` and verify the pasted blocks undo through native history. Repeat
+with `//paste -a`: the standard
 clipboard-bound air mask is owned, while an unsupported mask or graph increments
 fallback with a precise reason and continues through Enhanced synchronously.
 For the immediate live gate, use `//copy`, `//paste`, `/overdrive status`, and
@@ -246,16 +247,62 @@ confirm undo. Then repeat the status-and-undo sequence with `//paste -a`. A
 rotated probe (`//rotate 90`, `//paste`) verifies the same standard graph with
 the non-identity shared transform. These runtime actions cannot be performed by
 the source-only build environment and remain the required server acceptance
-step before acceleration work.
+step before accepting acceleration in production.
 
-## Remaining Stage 5C work
+## First accelerated identity-paste slice
 
-**Paste acceleration is still inactive, although deferred interception is live.** No acceptance claim is made for accelerated blocks, transformations, reorder,
-tiles, masks, entities, limits, continuation, synchronization, differential
-correctness, or performance. In particular, native/modded and tile-bearing
-cells have not been made fallback causes; execution simply is not owned at all.
-The next implementation must add snapshot-backed planning, exact Enhanced
-reorder tables, hybrid raw/native writes, bounded history, and entity history
-behind the now-live command owner.
+The live owner accelerates only the narrow Enhanced 6.3.0 standard graph when
+its delegate is the concrete `BlockArrayClipboard`, its destination is the
+concrete `EditSession`, traversal has not started, repetitions are one, source
+mutation/removal is absent, `sourceFunction` is null, and the source mask is the
+standard always-true mask or clipboard-bound `ExistingBlockMask`. The transform
+must be `Identity`; rotations/flips retain the proven deferred vanilla traversal
+rather than approximating their coordinate or metadata semantics. `//paste -a`
+is accelerated by filtering source air only.
 
-No runtime matrix or benchmarks are claimed by this document.
+Clipboard capture is explicitly synchronous on the command/server thread. It
+records full-width bounds and origin plus an immutable primitive `int[]` of
+`(legacyId << 4) | metadata`, preserving metadata without palette conversion.
+Tile NBT is indexed for conservative detection. Any tile NBT or copied entity
+selects deferred vanilla before planning, so associated data is never omitted.
+
+Admission precedes large allocations. Its conservative estimate includes the
+capture array, immutable defensive copy, four primitive plan arrays, and
+metadata (24 bytes per source position plus a fixed allowance). It must fit the
+64 MiB operation limit and an atomic reservation under the 128 MiB global
+retained limit. Rejection records a precise acceleration fallback reason and
+uses deferred vanilla; reservations are released on every terminal path.
+
+Workers receive only `PreparedClipboardView`, ignore-air, and numeric operation
+parameters. They count entries and publish an immutable `int[] x/y/z/state`
+plan through a volatile reference. They never access a clipboard, extent,
+session, world, chunk, entity, or tile. At server END ticks, a published plan
+moves `RUNNING -> COMMITTING` and calls `EditSession.setBlock` with legacy
+`BaseBlock(id, metadata)` entries until the five-millisecond deadline. Remaining
+entries continue next tick. Native mutation records WorldEdit history; only
+after the final entry does the owner call `LocalSession.remember` once, issue
+feedback, complete, and increment `pasteAccelerated`.
+
+A planner failure before mutation switches safely to the retained original
+`ForwardExtentCopy`. After the first accelerated `setBlock`, ownership is
+irrevocable: commit failure is reported and vanilla is never replayed. Custom
+graphs, transforms, entities, tiles, and admission rejection remain on deferred
+vanilla traversal.
+
+Status exposes acceleration fallback count/reason, active planning/commit
+gauges, prepared/planned/committed counts, and separate preparation/planning/
+commit timings. A fresh supported paste should show
+`pasteBridgeInvocations=1`, `pasteAccelerated=1`, `pasteDeferredCompleted=1`,
+and `pasteDeferredFailed=0`.
+
+For live verification, use a block-only, entity-free clipboard: run `//copy`,
+`//paste`, `/overdrive status`, then `//undo` and verify complete restoration.
+Repeat with a large clipboard and observe the planning/commit gauges while the
+server remains responsive across ticks. Repeat with air gaps and `//paste -a`,
+confirming destination blocks beneath source air remain unchanged, then undo.
+Finally include a tile/entity and verify acceleration stays unchanged, the
+specific fallback reason appears, deferred vanilla succeeds, and undo works.
+
+Transformed coordinates/state, tile commits, and entity planning/history remain
+future Stage 5C expansion points. No in-game result is claimed by this
+source-only environment; the production-jar procedure above is mandatory.

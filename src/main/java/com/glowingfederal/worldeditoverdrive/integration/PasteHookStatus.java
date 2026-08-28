@@ -13,12 +13,17 @@ public final class PasteHookStatus {
     public static volatile String lastPasteFallbackReason;
     public static volatile String lastPasteGraphDiagnostic;
     public static volatile String lastPasteDeferredReason;
+    public static volatile String lastPasteAccelerationFallbackReason;
     public static final AtomicLong pasteBridgeInvocations=new AtomicLong();
     public static final AtomicLong pasteAccelerated=new AtomicLong();
     public static final AtomicLong pasteFallbacks=new AtomicLong();
     public static final AtomicLong pasteDeferredActive=new AtomicLong();
     public static final AtomicLong pasteDeferredCompleted=new AtomicLong();
     public static final AtomicLong pasteDeferredFailed=new AtomicLong();
+    public static final AtomicLong pasteAccelerationFallbacks=new AtomicLong();
+    public static final AtomicLong pastePlanningActive=new AtomicLong(),pasteCommitActive=new AtomicLong();
+    public static final AtomicLong pastePreparedBlocks=new AtomicLong(),pastePlannedBlocks=new AtomicLong(),pasteCommittedBlocks=new AtomicLong();
+    public static final AtomicLong lastPastePrepareMillis=new AtomicLong(),lastPastePlanMillis=new AtomicLong(),lastPasteCommitMillis=new AtomicLong();
     public static RuntimeShape runtimeShape(){return runtimeShape.get();}
     public static boolean forwardExtentCopySeen(){return runtimeShape.get()!=RuntimeShape.NOT_SEEN;}
     public static boolean runtimeShapeCompatible(){RuntimeShape state=runtimeShape.get();return state==RuntimeShape.SEEN_COMPATIBLE||state==RuntimeShape.HOOK_INSTALLED;}
