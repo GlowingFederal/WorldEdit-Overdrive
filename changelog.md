@@ -124,3 +124,15 @@ Changes are listed oldest to newest.
 - Matched Enhanced's attempted-position block-limit accounting through a narrow
   fail-closed limiter handshake and documented the synchronous Stage 3 call path,
   unavailable runtime matrix, validation status, and provisional Stage 5 choice.
+
+## (d049766 Stage 4.6 dedicated-server compatibility and observability)
+
+- Added one Forge-routed Overdrive logger, startup proof, reliable terminal
+  operation summaries, failure context, and a bounded immutable latest snapshot.
+- Added dedicated-console/operator `/overdrive status` and `/overdrive stats`
+  commands without introducing any client dependency.
+- Added fail-closed constant-pattern, cuboid, EditSession, and extent-chain
+  compatibility inspection while retaining masks, block bags, survival, reorder,
+  unknown wrappers, and custom behavior on Enhanced.
+- Documented timing semantics, artifact diagnosis, the dedicated runtime matrix,
+  fallback guarantees, remaining restrictions, and timing-led optimization.
