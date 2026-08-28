@@ -194,3 +194,16 @@ Changes are listed oldest to newest.
 - Migrated accelerated constant fill recording to primitive history and
   documented the Stage 5B lifecycle, current in-memory limit, spill status,
   verification boundary, and remaining Stage 5C work.
+
+## (11097fb Repair Stage 5B Enhanced history integration)
+
+- Replaced the legacy FAWE history base with Enhanced 6.3.0's native `ChangeSet`
+  contract and attached accelerated primitive segments through the owning edit
+  session's existing history.
+- Preserved full-width coordinates, packed legacy block state, committed-prefix
+  iteration, defensive tile NBT ownership, and bounded retained-memory accounting.
+- Decoupled chunk synchronization from concrete operation types with a result
+  value carrying strategy and tile packet counts, fixing generalized coordinator
+  accounting.
+- Expanded Stage 5B history tests and documented the native history seam,
+  iterator direction, coordinate representation, and normal-operation isolation.

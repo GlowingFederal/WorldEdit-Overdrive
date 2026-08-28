@@ -12,9 +12,11 @@ Every snapshot reports conservative estimated bytes. The intended coordinator li
 
 ## Primitive history and Enhanced ownership
 
-`OverdriveChangeSet` is a `FaweChangeSet`, so the accelerated edit installs it on the existing `EditSession`; the normal `LocalSession.remember(EditSession)` path continues to own undo and redo. Recording uses growable primitive arrays: packed x/z, byte y, and unsigned-char before/after legacy states. It allocates no `BlockVector`, `BaseBlock`, or `BlockChange` per record. The Enhanced interface adapter creates one `BlockChange` only when its lazy forward (redo) or backward (undo) iterator advances.
+`OverdriveChangeSet` implements Enhanced 6.3.0's four-method `ChangeSet` interface directly. Because `EditSession` constructs a private final `BlockOptimizedHistory` and offers no replacement hook, a completed accelerated operation is attached to that native history as one composite `Change`. The composite lazily traverses the primitive segment. This narrow seam leaves native `add(Change)` recording untouched and lets the normal `LocalSession.remember(EditSession)` path continue to own undo and redo.
 
-Tile before/after `CompoundTag` values are separate optional channels associated with a primitive block record and are supplied to the lazily created before/after blocks. Unchanged state/tile pairs are omitted. Attempted limit reservation remains independent of actual changed and history record counts.
+Recording uses growable primitive arrays: separate full-width x/z arrays, byte y, and unsigned-char before/after legacy states. Separate coordinates avoid the former lossy two-halves-in-one-int encoding and preserve the full Minecraft coordinate range. It allocates no `BlockVector`, `BaseBlock`, or `BlockChange` per record. The Enhanced interface adapter creates one `BlockChange` only when its lazy forward (redo) or backward (undo) iterator advances. Backward iteration is newest-to-oldest for undo; forward iteration is oldest-to-newest for redo.
+
+Tile before/after `CompoundTag` values are defensively deep-copied separate optional channels associated with a primitive block record and are supplied to the lazily created before/after blocks. Unchanged state/tile pairs are omitted. Attempted limit reservation remains independent of actual changed and history record counts. Retained-capacity accounting now includes both full-width coordinates, y, two states, and two tile references rather than a stale per-record constant.
 
 Prepared entries are not visible through `size()` or either iterator. After each successful chunk write, only the successful count is added to the committed prefix. Failure seals and discards the uncommitted tail; this is partial-operation undo ownership, not rollback. Ordered sequences use the same rule at each successful placement boundary. Cancellation before mutation therefore exposes zero entries.
 
@@ -22,7 +24,7 @@ The first encoding is deliberately simple `PACKED_RAW`, a good bounded fallback 
 
 ## Constant set migration and diagnostics
 
-Constant `//set` now installs primitive Overdrive history, records old state on the server thread before mutation, establishes ownership after each successful chunk commit, and seals committed history on completion or failure. Existing attempted-position limit reservation, changed filtering, writer behavior, synchronization, hook counters, fallback diagnostics, status, and stats command behavior remain intact.
+Constant `//set` now records primitive Overdrive history, establishes ownership after each successful chunk commit, seals the committed prefix, and adds one composite entry to the session's existing native change set. It never replaces the session change set. Existing attempted-position limit reservation, changed filtering, writer behavior, synchronization, hook counters, fallback diagnostics, status, and stats command behavior remain intact.
 
 Snapshot bytes/capture time, history bytes/encoding/recording time, spill bytes, and committed entries are model-level metrics ready for coordinator and summary aggregation. The existing summary already reports history time; wiring all model counters into `/overdrive stats` across future-tick plans remains before production Stage 5C.
 
