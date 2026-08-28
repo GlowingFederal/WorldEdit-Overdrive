@@ -1,9 +1,7 @@
 package com.glowingfederal.worldeditoverdrive.backend;
 
-import cpw.mods.fml.common.FMLCommonHandler;
 import net.minecraft.block.Block;
 import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
@@ -192,9 +190,6 @@ public final class ForgeChunkWriter {
     }
 
     private static void assertServerThread() {
-        MinecraftServer server = FMLCommonHandler.instance().getMinecraftServerInstance();
-        if (server == null || Thread.currentThread() != server.getServerThread()) {
-            throw new IllegalStateException("ForgeChunkWriter.commit must run on the Minecraft server thread");
-        }
+        ServerThreadGuard.assertServerThread();
     }
 }
