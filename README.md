@@ -30,9 +30,11 @@ $ gradlew build
 
 The Forge artifact in `target/` is an acceleration add-on. A server must install
 **WorldEdit Enhanced 6.3.0** (mod ID `worldedit`) and its required
-**FalsePatternLib** dependency alongside KAWE. KAWE does not embed WorldEdit's
-core or Forge platform. Do not install ordinary legacy WorldEdit beside Enhanced:
-both implementations own the same packages and the same Forge mod ID.
+**FalsePatternLib** dependency alongside KAWE. KAWE embeds its complete `:core`
+compiled output (including its FAWE-modified `com.sk89q.worldedit` overrides and
+additions), but does not embed Enhanced's WorldEdit implementation or Forge
+platform. Do not install ordinary legacy WorldEdit beside Enhanced: both
+implementations own the same packages and the same Forge mod ID.
 
 The build consumes Enhanced from
 `curse.maven:worldedit-legacy-enhanced-1135144:5879351` as a compile dependency.
@@ -40,6 +42,12 @@ Enhanced owns its FalsePatternLib runtime/development dependency declaration;
 KAWE does not directly use FalsePatternLib APIs or package either mod. See
 [`docs/worldedit-enhanced-integration.md`](docs/worldedit-enhanced-integration.md)
 for the ownership audit and integration boundary.
+
+The canonical Forge release jar is assembled from the complete compiled outputs
+of `:core` and `:forge1710`, plus the existing private shaded support libraries.
+The build adds `:core`'s source-set output directly rather than asking Shadow to
+discover project classes through dependency resolution; Enhanced and
+FalsePatternLib therefore remain separate installed mods.
 
 ## Forge 1.7.10 commit safety
 

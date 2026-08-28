@@ -36,3 +36,11 @@ Changes are listed oldest to newest.
 - Removed WorldEdit shadow assembly and KAWE's competing Forge player wrapper.
 - Required Enhanced's `worldedit` Forge mod and documented FalsePatternLib,
   source ownership, retained FAWE overrides, and `AbstractChunkUpdater`.
+
+## (44d66ab Fix Forge 1.7.10 core output packaging)
+
+- Added the complete compiled `:core` source-set output directly to the
+  canonical Forge shadow jar instead of relying on project dependency filtering.
+- Kept WorldEdit Enhanced and FalsePatternLib external while preserving KAWE's
+  WorldEdit overrides, FAWE classes, Forge output, and private shaded libraries.
+- Documented the assembled artifact topology and Enhanced integration boundary.
