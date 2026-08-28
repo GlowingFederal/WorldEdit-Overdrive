@@ -1,7 +1,6 @@
 package com.glowingfederal.worldeditoverdrive.integration;
 
 import com.sk89q.worldedit.LocalSession;
-import com.sk89q.worldedit.MutableBlockVector;
 import com.sk89q.worldedit.Vector;
 import com.sk89q.worldedit.blocks.BaseBlock;
 import com.sk89q.worldedit.entity.Player;
@@ -56,16 +55,32 @@ public final class DeferredPasteManager {
             if(vanilla){Operations.completeLegacy(original);adapter.destination.flushQueue();finish();return true;}
             if(planningFailure!=null){if(!mutation){defer("worker planning failed before mutation: "+planningFailure);return false;}throw new Exception("accelerated planning failed",planningFailure);}
             Plan ready=plan;if(ready==null)return false;if(lifecycle.state()==PasteContinuationOperation.State.RUNNING){lifecycle.committing();PasteHookStatus.pasteCommitActive.incrementAndGet();}
-            long tickStarted=System.nanoTime(),deadline=tickStarted+COMMIT_NANOS;MutableBlockVector position=new MutableBlockVector();int submitted=0,changed=0;
+            long tickStarted=System.nanoTime(),deadline=tickStarted+COMMIT_NANOS;int submitted=0,changed=0;
             // flushQueue has no incremental/time-budget overload at EditSession level. Bound the
             // queue which it must drain as well as the submission loop, and include that drain in
             // the measured commit time. A flushed batch, not setBlock(), is a visible commit.
-            while(cursor<ready.state.length&&submitted<256&&System.nanoTime()<deadline){int packed=ready.state[cursor];position.setComponents(ready.x[cursor],ready.y[cursor],ready.z[cursor]);if(adapter.destination.setBlock(position,new BaseBlock(packed>>>4,packed&15)))changed++;mutation=true;cursor++;submitted++;}
-            if(submitted!=0){PasteHookStatus.pasteSubmittedBlocks.addAndGet(submitted);adapter.destination.flushQueue();PasteHookStatus.pasteCommittedBlocks.addAndGet(changed);}
-            commitNanos+=System.nanoTime()-tickStarted;PasteHookStatus.lastPasteCommitMillis.set(commitNanos/1000000L);
+            while(cursor<ready.state.length&&submitted<256&&System.nanoTime()<deadline){
+                int packed=ready.state[cursor];
+                Vector position=new Vector(ready.x[cursor],ready.y[cursor],ready.z[cursor]);
+                if(adapter.destination.setBlock(position,new BaseBlock(packed>>>4,packed&15)))changed++;
+                mutation=true;
+                cursor++;
+                submitted++;
+            }
+            if(submitted!=0){
+                PasteHookStatus.pasteSubmittedBlocks.addAndGet(submitted);
+                adapter.destination.flushQueue();
+                PasteHookStatus.pasteCommittedBlocks.addAndGet(changed);
+            }
+            commitNanos+=System.nanoTime()-tickStarted;
+            PasteHookStatus.lastPasteCommitMillis.set(commitNanos/1000000L);
             if(cursor<ready.state.length)return false;
             // The last batch is world-applied before history and success become observable.
-            finish();PasteHookStatus.pasteCommitActive.decrementAndGet();lifecycle.complete();PasteHookStatus.pasteAccelerated.incrementAndGet();return true;
+            finish();
+            PasteHookStatus.pasteCommitActive.decrementAndGet();
+            lifecycle.complete();
+            PasteHookStatus.pasteAccelerated.incrementAndGet();
+            return true;
         }
         void finish(){session.remember(adapter.destination);Vector to=adapter.destinationOrigin;if(select){Vector max=to.add(adapter.region.getMaximumPoint().subtract(adapter.region.getMinimumPoint()));RegionSelector selector=new CuboidRegionSelector(player.getWorld(),to,max);session.setRegionSelector(player.getWorld(),selector);selector.learnChanges();selector.explainRegionAdjust(player,session);}player.print("The clipboard has been pasted at "+to);}
         void release(){if(reserved!=0){RETAINED.addAndGet(-reserved);reserved=0;}}
@@ -76,7 +91,53 @@ public final class DeferredPasteManager {
             for(int y=0;y<view.getSizeY();y++)for(int z=0;z<view.getSizeZ();z++)for(int x=0;x<view.getSizeX();x++){int sx=view.getMinX()+x,sy=view.getMinY()+y,sz=view.getMinZ()+z,s=view.packedStateAt(sx,sy,sz);if(ignoreAir&&(s>>>4)==0)continue;xs[n]=sx+dx;ys[n]=sy+dy;zs[n]=sz+dz;states[n++]=s;}owner.plan=new Plan(xs,ys,zs,states);PasteHookStatus.pastePlannedBlocks.addAndGet(count);
         }catch(Throwable t){owner.planningFailure=t;}finally{PasteHookStatus.lastPastePlanMillis.set(ms(started));PasteHookStatus.pastePlanningActive.decrementAndGet();}}
     }
-    private static PreparedClipboardView capture(BlockArrayClipboard clipboard){Vector min=clipboard.getMinimumPoint(),max=clipboard.getMaximumPoint(),origin=clipboard.getOrigin();int sx=max.getBlockX()-min.getBlockX()+1,sy=max.getBlockY()-min.getBlockY()+1,sz=max.getBlockZ()-min.getBlockZ()+1;int[] states=new int[sx*sy*sz];MutableBlockVector p=new MutableBlockVector();int n=0;java.util.Map<Integer,com.sk89q.jnbt.CompoundTag> tiles=new java.util.HashMap<Integer,com.sk89q.jnbt.CompoundTag>();for(int y=min.getBlockY();y<=max.getBlockY();y++)for(int z=min.getBlockZ();z<=max.getBlockZ();z++)for(int x=min.getBlockX();x<=max.getBlockX();x++){p.setComponents(x,y,z);BaseBlock b=clipboard.getBlock(p);states[n]=b.getId()<<4|b.getData();if(b.getNbtData()!=null)tiles.put(Integer.valueOf(n),b.getNbtData());n++;}return new PreparedClipboardView(min.getBlockX(),min.getBlockY(),min.getBlockZ(),sx,sy,sz,origin.getBlockX(),origin.getBlockY(),origin.getBlockZ(),states,tiles);}
+    private static PreparedClipboardView capture(BlockArrayClipboard clipboard) {
+        Vector min = clipboard.getMinimumPoint();
+        Vector max = clipboard.getMaximumPoint();
+        Vector origin = clipboard.getOrigin();
+
+        int sx = max.getBlockX() - min.getBlockX() + 1;
+        int sy = max.getBlockY() - min.getBlockY() + 1;
+        int sz = max.getBlockZ() - min.getBlockZ() + 1;
+
+        int[] states = new int[sx * sy * sz];
+
+        int n = 0;
+
+        java.util.Map<Integer, com.sk89q.jnbt.CompoundTag> tiles =
+                new java.util.HashMap<Integer, com.sk89q.jnbt.CompoundTag>();
+
+        for (int y = min.getBlockY(); y <= max.getBlockY(); y++) {
+            for (int z = min.getBlockZ(); z <= max.getBlockZ(); z++) {
+                for (int x = min.getBlockX(); x <= max.getBlockX(); x++) {
+                    Vector p = new Vector(x, y, z);
+                    BaseBlock b = clipboard.getBlock(p);
+
+                    states[n] = (b.getId() << 4) | (b.getData() & 15);
+
+                    if (b.getNbtData() != null) {
+                        tiles.put(Integer.valueOf(n), b.getNbtData());
+                    }
+
+                    n++;
+                }
+            }
+        }
+
+        return new PreparedClipboardView(
+                min.getBlockX(),
+                min.getBlockY(),
+                min.getBlockZ(),
+                sx,
+                sy,
+                sz,
+                origin.getBlockX(),
+                origin.getBlockY(),
+                origin.getBlockZ(),
+                states,
+                tiles
+        );
+    }
     private static boolean reserve(long bytes){for(;;){long current=RETAINED.get();if(current+bytes>GLOBAL)return false;if(RETAINED.compareAndSet(current,current+bytes))return true;}}
     private static long ms(long start){return (System.nanoTime()-start)/1000000L;}
     private DeferredPasteManager(){}
