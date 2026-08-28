@@ -17,7 +17,21 @@ The narrow interception point is therefore the head of the single public `EditSe
 
 Forge 1.7.10 does not provide a bundled, dependable Mixin service. Stage 4 uses a launch-time, method-descriptor-checked `IClassTransformer` as the 1.7-compatible equivalent of a one-method redirect. It inserts only a nullable call to `Stage4SetBridge.trySet`; `null` continues at the original first instruction. A descriptor mismatch fails startup rather than patching an unknown Enhanced version. No WorldEdit-owned class is packaged.
 
-Eligibility is decided before planning or mutation. It requires the exact Enhanced `EditSession`, exact `CuboidRegion`, exact legacy `SingleBlockPattern`, a null session mask, disabled reorder queue, Forge `WorldServer`, server side, ID 0..4095, metadata 0..15, a safely computed volume fitting Enhanced's integer result model, and volume within `getBlockChangeLimit()`. Unsupported/custom regions, patterns, masks, sessions, worlds, transforms represented by another pattern/session type, clients, overflow, and unavailable tile conversion return to Enhanced unchanged. The exact-session rule rejects `EditSession` subclasses, but Enhanced event-installed extent decorators cannot be introspected through its public 6.3 API; deployments using extent interception should disable this initial integration until a registration handshake is added.
+The loading plugin, transformer registration, target encounter, descriptor match,
+hook installation, bridge calls, accelerated calls, fallbacks, and last fallback
+reason now have a small shared diagnostic state. Startup reports the `worldedit`
+`ModContainer` version rather than treating `WorldEdit.getVersion()` as a
+compatibility signal. Enhanced obtains that API string from the package
+`Implementation-Version`; it is `(unknown)` when its jar did not publish that
+package attribute, even though Forge has valid `mcmod.info` metadata.
+
+The coremod exclusion is intentionally limited to the loading plugin,
+transformer, and shared status class. Excluding the former whole `integration`
+package caused `Stage4SetBridge` to be parent-loaded, outside LaunchClassLoader,
+so it could not safely resolve runtime WorldEdit/Minecraft types. This bootstrap
+class-loader boundary was the primary installation defect.
+
+Eligibility is decided before planning or mutation. It requires the exact Enhanced `EditSession`, exact `CuboidRegion`, legacy `SingleBlockPattern`, a null session mask, disabled reorder queue, Forge `WorldServer`, server side, ID 0..4095, metadata 0..15, a safely computed volume fitting Enhanced's integer result model, and volume within `getBlockChangeLimit()`. Unsupported/custom regions, patterns, masks, sessions, worlds, transforms represented by another pattern/session type, clients, overflow, and unavailable tile conversion return to Enhanced unchanged. The exact session and cuboid checks remain conservative because subclasses can change the extent boundary or bounds/traversal contract. The constant resolver uses `instanceof SingleBlockPattern`, safely allowing implementation subclasses while accepting no arbitrary `Pattern` wrapper. Each intercepted call reports only its first failed eligibility condition, and the first call also reports actual session, region, pattern, World, queue, and mask values.
 
 The command remains synchronous. Planning and commit complete before the original command receives its affected count, so normal feedback and session remembering occur in the expected order and there is no server-thread wait on future ticks. This deliberately does not use Stage 3's tick budget: it preserves Enhanced semantics but can still stall for very large edits. Cooperative asynchronous command/session finalization is deferred.
 
@@ -49,6 +63,15 @@ Legacy FAWE's replacement `EditSession`, broad `com.boydti.fawe` queue extent st
 ## Validation and measured status
 
 Static inspection can verify package ownership, transformer target/descriptors, world-read boundaries, dense fill construction, and absence of `//replace`/general-pattern handling. A dedicated 1.7.10 server/client fixture is not present in this checkout, so the requested runtime world matrix, save/reload, visual synchronization, injected preparation/commit failures, shutdown, undo exercise, and plain-Enhanced versus Overdrive timings have **not** been claimed. Lighting time is included in total commit wall time but is not separately instrumented yet.
+
+For a diagnostic server run, the startup sequence must contain the core-plugin
+initialization line, the `EditSession#setBlocks(Region, Pattern)` installation
+line, and an `ACTIVE` summary. Run vanilla cuboid `//set stone`, `//set air`, and
+one legacy metadata value. Every call must increment the bridge counter and
+either print `Overdrive //set completed` or one exact fallback reason; the type
+line establishes whether command binding supplied the expected objects and
+whether reorder was enabled. An `INACTIVE` summary is a hard integration failure,
+not a ready state.
 
 The benchmark matrix to run on the fixture is: aligned stone and air cuboids, unaligned boundary-heavy cuboids, raw-ineligible modded state, and small vanilla/modded tile fills; record blocks, chunks, elapsed/tick stalls, dense/sparse sections, raw/native applications, packets, and peak prepared bytes for Enhanced and Overdrive from identical snapshots. Stage 3 statistics do not currently aggregate synchronous bridge commits, another explicit blocker before performance claims.
 
