@@ -3,6 +3,8 @@ package com.boydti.fawe.util;
 import com.boydti.fawe.Fawe;
 import com.boydti.fawe.config.Settings;
 import com.boydti.fawe.object.FaweQueue;
+import com.boydti.fawe.object.RunnableVal;
+import com.boydti.fawe.example.MappedFaweQueue;
 import com.boydti.fawe.wrappers.WorldWrapper;
 import com.sk89q.worldedit.world.World;
 import java.util.ArrayList;
@@ -263,6 +265,17 @@ public class SetQueue {
     }
 
     public void flush(FaweQueue queue) {
+        if (!Fawe.isMainThread() && queue instanceof MappedFaweQueue
+                && !((MappedFaweQueue) queue).supportsParallelChunkExecution()) {
+            final FaweQueue serverOwnedQueue = queue;
+            TaskManager.IMP.sync(new RunnableVal<Object>() {
+                @Override
+                public void run(Object value) {
+                    flush(serverOwnedQueue);
+                }
+            });
+            return;
+        }
         int parallelThreads;
         if (Fawe.get().isMainThread()) {
             parallelThreads = Settings.IMP.QUEUE.PARALLEL_THREADS;

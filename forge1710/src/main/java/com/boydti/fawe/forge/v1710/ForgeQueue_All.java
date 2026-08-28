@@ -61,6 +61,9 @@ public class ForgeQueue_All extends NMSMappedFaweQueue<World, Chunk, ExtendedBlo
     protected static Method methodFromNative;
     protected static Method methodToNative;
     protected static ExtendedBlockStorage emptySection;
+    private static final Field heightMapMinimumField;
+    private static final Method multipartCreate;
+    private static final Method multipartSend;
 
 
     static {
@@ -71,6 +74,26 @@ public class ForgeQueue_All extends NMSMappedFaweQueue<World, Chunk, ExtendedBlo
             methodToNative = converter.getDeclaredMethod("fromNative", NBTBase.class);
             methodFromNative.setAccessible(true);
             methodToNative.setAccessible(true);
+            Field minimum;
+            try {
+                minimum = Chunk.class.getDeclaredField("field_82912_p");
+            } catch (NoSuchFieldException ignored) {
+                minimum = Chunk.class.getDeclaredField("heightMapMinimum");
+            }
+            minimum.setAccessible(true);
+            heightMapMinimumField = minimum;
+            Method create = null;
+            Method send = null;
+            try {
+                Class<?> helper = Class.forName("codechicken.multipart.MultipartHelper");
+                Class<?> multipart = Class.forName("codechicken.multipart.TileMultipart");
+                create = helper.getMethod("createTileFromNBT", World.class, NBTTagCompound.class);
+                send = helper.getMethod("sendDescPacket", World.class, multipart);
+            } catch (ClassNotFoundException ignored) {
+                // Forge Multipart is optional.
+            }
+            multipartCreate = create;
+            multipartSend = send;
         } catch (Throwable e) {
             throw new RuntimeException(e);
         }
@@ -85,6 +108,11 @@ public class ForgeQueue_All extends NMSMappedFaweQueue<World, Chunk, ExtendedBlo
     public ForgeQueue_All(String world) {
         super(world);
         getImpWorld();
+    }
+
+    @Override
+    public boolean supportsParallelChunkExecution() {
+        return false;
     }
 
     @Override
@@ -396,28 +424,73 @@ public class ForgeQueue_All extends NMSMappedFaweQueue<World, Chunk, ExtendedBlo
         }
     }
 
-    public void setCount(int tickingBlockCount, int nonEmptyBlockCount, ExtendedBlockStorage section) throws NoSuchFieldException, IllegalAccessException {
-        Class<? extends ExtendedBlockStorage> clazz = section.getClass();
-        Field fieldTickingBlockCount;
-        Field fieldNonEmptyBlockCount;
-        try {
-            fieldTickingBlockCount = clazz.getDeclaredField("field_76683_c"); // tickRefCount
-        }
-        catch (NoSuchFieldException ignored){
-            fieldTickingBlockCount = clazz.getDeclaredField("tickRefCount");
-        }
+    public void updateSectionCounts(ExtendedBlockStorage section) {
+        section.removeInvalidBlocks();
+    }
 
+    public void recomputeHeightMap(Chunk chunk, CharFaweChunk changed) {
+        int minimum = 256;
+        int bx = chunk.xPosition << 4;
+        int bz = chunk.zPosition << 4;
+        for (int z = 0; z < 16; z++) {
+            for (int x = 0; x < 16; x++) {
+                boolean affected = false;
+                for (int section = 0; section < changed.ids.length && !affected; section++) {
+                    char[] edits = changed.getIdArray(section);
+                    if (edits == null) continue;
+                    for (int y = 0; y < 16; y++) {
+                        if (edits[FaweCache.getJ(y, z, x)] != 0) {
+                            affected = true;
+                            break;
+                        }
+                    }
+                }
+                int index = z << 4 | x;
+                if (affected) {
+                    int height = 0;
+                    for (int y = 255; y >= 0; y--) {
+                        Block block = chunk.worldObj.getBlock(bx + x, y, bz + z);
+                        if (block.getLightOpacity(chunk.worldObj, bx + x, y, bz + z) != 0) {
+                            height = y + 1;
+                            break;
+                        }
+                    }
+                    chunk.heightMap[index] = height;
+                }
+                minimum = Math.min(minimum, chunk.heightMap[index]);
+            }
+        }
         try {
-            fieldNonEmptyBlockCount = clazz.getDeclaredField("field_76682_b"); // blockRefCount
+            heightMapMinimumField.setInt(chunk, minimum);
+        } catch (IllegalAccessException e) {
+            throw new IllegalStateException("Unable to update chunk height-map minimum", e);
         }
-        catch (NoSuchFieldException ignored){
-            fieldNonEmptyBlockCount = clazz.getDeclaredField("blockRefCount"); // blockRefCount
-        }
+    }
 
-        fieldTickingBlockCount.setAccessible(true);
-        fieldNonEmptyBlockCount.setAccessible(true);
-        fieldTickingBlockCount.set(section, tickingBlockCount);
-        fieldNonEmptyBlockCount.set(section, nonEmptyBlockCount);
+    public TileEntity createTileEntity(World world, NBTTagCompound tag) {
+        TileEntity normal = TileEntity.createAndLoadEntity(tag);
+        if (multipartCreate != null) {
+            try {
+                TileEntity multipart = (TileEntity) multipartCreate.invoke(null, world, tag);
+                if (multipart != null) return multipart;
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Forge Multipart tile construction failed", e);
+            }
+        }
+        if (normal == null) {
+            throw new IllegalArgumentException("Unknown or malformed tile entity NBT: " + tag);
+        }
+        return normal;
+    }
+
+    public void sendMultipartDescription(World world, TileEntity tile) {
+        if (multipartSend != null && multipartSend.getParameterTypes()[1].isInstance(tile)) {
+            try {
+                multipartSend.invoke(null, world, tile);
+            } catch (ReflectiveOperationException e) {
+                throw new IllegalStateException("Forge Multipart tile synchronization failed", e);
+            }
+        }
     }
 
     @Override

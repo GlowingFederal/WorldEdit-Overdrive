@@ -38,7 +38,7 @@ public abstract class NMSMappedFaweQueue<WORLD, CHUNK, CHUNKSECTION, SECTION> ex
     public void runTasks() {
         super.runTasks();
         if (!getRelighter().isEmpty()) {
-            TaskManager.IMP.async(new Runnable() {
+            Runnable lightingTask = new Runnable() {
                 @Override
                 public void run() {
                     if (getSettings().IMP.LIGHTING.REMOVE_FIRST) {
@@ -47,7 +47,12 @@ public abstract class NMSMappedFaweQueue<WORLD, CHUNK, CHUNKSECTION, SECTION> ex
                         getRelighter().fixLightingSafe(hasSky());
                     }
                 }
-            });
+            };
+            if (supportsParallelChunkExecution()) {
+                TaskManager.IMP.async(lightingTask);
+            } else {
+                TaskManager.IMP.taskNowMain(lightingTask);
+            }
         }
     }
 
