@@ -53,3 +53,11 @@ Changes are listed oldest to newest.
   verifies the WorldEdit Enhanced API at initialization without acceleration.
 - Kept Enhanced external, retired Shadow and custom packaging from the active
   build, and documented the normal `build/libs` runtime artifact.
+
+## (9c93864 Restrict compilation to Overdrive addon sources)
+
+- Limited the active Java source set to the owned WorldEdit Overdrive package.
+- Kept the legacy KAWE/FAWE Forge implementation on disk solely as excluded
+  reference material for later porting.
+- Updated the project and integration documentation to describe the minimal
+  addon boundary and deferred acceleration work.

@@ -30,7 +30,8 @@ dependency and is not embedded in this JAR.
 
 ## Repository layout
 
-The root `src/main/java` and `src/main/resources` directories form the only
-active Gradle project. The `core`, `bukkit`, `forge1710`, `favs`, and
-`ReferenceSRC` directories are retained solely as legacy migration reference;
-none of their sources are compiled by the active build.
+The root project is the only active Gradle project. Its Java source set has an
+explicit `com/glowingfederal/worldeditoverdrive/**` include, so only the minimal
+addon entry point is compiled. The `core`, `bukkit`, `forge1710`, `favs`, and
+`ReferenceSRC` directories—including the old `com.boydti.fawe.forge` sources—are
+retained solely as legacy migration reference and are not compiled or packaged.
