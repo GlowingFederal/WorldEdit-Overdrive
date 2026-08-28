@@ -53,18 +53,59 @@ processResources {
 }
 
 shadowJar {
+    // This is the Forge distribution, not an add-on for a separately installed
+    // WorldEdit. Keep the platform and the unmodified remainder of core in the
+    // same jar as KAWE. Project output is added first and is therefore the
+    // authority for every FAWE-overridden WorldEdit class.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     relocate 'org.yaml.snakeyaml', 'com.boydti.fawe.yaml'
     dependencies {
         include(dependency('com.github.luben:zstd-jni:1.1.1'))
 //        include(dependency('org.javassist:javassist:3.22.0-CR1'))
         include(dependency('co.aikar:fastutil-lite:1.0'))
         include(dependency(':core'))
+        include(dependency('com.sk89q.worldedit:worldedit-core'))
+        include(dependency('com.sk89q.worldedit:worldedit-forge-mc1.7.10'))
         include(dependency('org.yaml:snakeyaml:1.16'))
     }
     archiveName = "${parent.name}-${project.name}-${parent.version}.jar"
     destinationDir = file '../target'
     manifest {
         attributes("Main-Class": "com.boydti.fawe.installer.InstallerFrame")
+    }
+}
+
+task verifyWorldEditJar(dependsOn: shadowJar) {
+    description = 'Checks that the self-contained Forge distribution owns one coherent WorldEdit runtime.'
+    group = 'verification'
+    doLast {
+        def required = [
+                'com/sk89q/worldedit/WorldEdit.class',
+                'com/sk89q/worldedit/EditSession.class',
+                'com/sk89q/worldedit/world/AbstractChunkUpdater.class',
+                'com/sk89q/worldedit/forge/ForgeWorldEdit.class',
+                'com/sk89q/worldedit/forge/ForgePlatform.class',
+                'com/sk89q/worldedit/forge/ForgeWorld.class',
+                'com/sk89q/worldedit/forge/ForgePlayer.class',
+                'com/boydti/fawe/forge/ForgeMain.class',
+                'com/boydti/fawe/forge/v1710/ForgeQueue_All.class'
+        ]
+        def names = []
+        zipTree(shadowJar.archivePath).visit { details ->
+            if (!details.directory) names << details.relativePath.pathString
+        }
+        def missing = required.findAll { !names.contains(it) }
+        if (!missing.empty) {
+            throw new GradleException("Incomplete Forge distribution; missing: ${missing.join(', ')}")
+        }
+        def duplicates = names.countBy { it }.findAll { name, count -> count > 1 }
+        if (!duplicates.empty) {
+            throw new GradleException("Duplicate jar entries: ${duplicates.keySet().sort().join(', ')}")
+        }
+        def referenceEntries = names.findAll { it.startsWith('ReferenceSRC/') }
+        if (!referenceEntries.empty) {
+            throw new GradleException('ReferenceSRC content must never be distributed')
+        }
     }
 }
 shadowJar.doLast {
@@ -86,4 +127,5 @@ artifacts {
     archives deobfJar
 }
 
-build.dependsOn(shadowJar)
+check.dependsOn(verifyWorldEditJar)
+build.dependsOn(verifyWorldEditJar)

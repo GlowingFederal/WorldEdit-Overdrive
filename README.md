@@ -28,6 +28,16 @@ $ gradlew setupDecompWorkspace
 $ gradlew build
 ```
 
+The Forge artifact in `target/` is self-contained: it packages the legacy
+WorldEdit core and Forge 1.7.10 platform together with KAWE. Do **not** install
+WorldEdit, WorldEdit Enhanced, or another WorldEdit Forge jar beside it. Forge's
+duplicate `worldedit` mod-id check intentionally rejects that unsupported setup.
+
+The Forge build runs `verifyWorldEditJar`, which checks the distributable (rather
+than merely the compiler class path) for its bootstrap, platform adapters,
+`EditSession`, chunk updater, and FAWE queue, as well as duplicate entries and
+accidentally packaged reference sources.
+
 ## Forge 1.7.10 commit safety
 
 Live Forge chunk commits and their queued relighting are owned by the server thread. The
