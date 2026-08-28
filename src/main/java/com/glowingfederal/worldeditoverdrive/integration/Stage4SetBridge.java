@@ -34,18 +34,21 @@ public final class Stage4SetBridge {
     private Stage4SetBridge() { }
 
     /** Entry used by Enhanced's composed /set command (Apply -> RegionVisitor -> BlockReplace). */
-    public static Integer trySetOperation(EditSession session, Region region, Operation operation)
+    public static Integer trySetOperation(Operation operation)
             throws MaxChangedBlocksException {
         Stage4HookStatus.bridgeInvocations.incrementAndGet();
         OverdriveLog.info("WorldEditOverdrive //set bridge invoked");
         if (!(operation instanceof RegionVisitor)) return null;
         try {
+            Object region=readField(operation,"region");
             Object function=readField(operation,"function");
-            if (!(function instanceof BlockReplace) || readField(function,"extent") != session) return null;
+            if (!(region instanceof Region) || !(function instanceof BlockReplace)) return null;
+            Object extent=readField(function,"extent");
+            if (!(extent instanceof EditSession)) return null;
             Object candidate=readField(function,"pattern");
             BaseBlock block=resolveComposedConstant(candidate);
             if(block==null)return null;
-            Integer result=trySetBlock(session,region,block);
+            Integer result=trySetBlock((EditSession)extent,(Region)region,block);
             if(result!=null)writeField(operation,"affected",result);
             return result;
         } catch (ReflectiveOperationException incompatible) {
