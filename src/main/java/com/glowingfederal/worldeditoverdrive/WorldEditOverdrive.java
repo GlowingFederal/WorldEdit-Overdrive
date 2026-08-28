@@ -38,10 +38,10 @@ public final class WorldEditOverdrive {
         OverdriveLog.info("detected WorldEdit mod: {}",fmlVersion);
         if (!sameVersion(apiVersion,fmlVersion))
             OverdriveLog.info("version diagnostics: FML={}, WorldEdit API={}",fmlVersion,apiVersion);
-        String reason=Stage4HookStatus.hookInstalled ? "" : Stage4HookStatus.editSessionSeen
-                ? " (target descriptor did not match)" : " (EditSession target not transformed)";
+        String reason=Stage4HookStatus.activeSetCommandHookInstalled ? "" : Stage4HookStatus.selectionCommandSeen
+                ? " (SelectionCommand descriptor/anchors did not match)" : " (SelectionCommand target not transformed)";
         OverdriveLog.info("WorldEdit {} detected; Stage 4 //set hook {}{}",
-                fmlVersion,Stage4HookStatus.hookInstalled ? "ACTIVE" : "INACTIVE",reason);
+                fmlVersion,Stage4HookStatus.activeSetCommandHookInstalled ? "ACTIVE" : "INACTIVE",reason);
         FMLCommonHandler.instance().bus().register(ticks);
     }
 
