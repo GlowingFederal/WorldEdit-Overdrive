@@ -19,3 +19,12 @@ Changes are listed oldest to newest.
   entries, and accidental reference-source packaging.
 - Corrected Forge metadata and documented ownership, coexistence, remaining
   dependencies, Enhanced follow-ups, and clean-server regression coverage.
+
+## (88ec106 Restore legacy WorldEdit snapshot baseline)
+
+- Restored `com.sk89q.worldedit:worldedit-core:6.1.3-SNAPSHOT` in every module
+  changed by the packaging-normalization pass.
+- Prioritized EngineHub's WorldEdit Maven repository ahead of legacy aggregate
+  mirrors while preserving the self-contained Forge shadow packaging rules.
+- Corrected the build and ownership documentation to identify the snapshot as
+  an embedded build input rather than an external runtime dependency.

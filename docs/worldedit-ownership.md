@@ -7,9 +7,11 @@ The Forge distribution is a single runtime unit with three layers:
 1. `core/src/main/java/com/sk89q/worldedit` contains the FAWE fork's overrides,
    including `EditSession`, the accelerated extent/visitor changes, and
    `AbstractChunkUpdater`.
-2. The pinned WorldEdit 6.1.3 core artifact supplies only baseline classes not
-   overridden by the fork. It is embedded in the distribution; it is not a
-   server-side prerequisite. Snapshot core coordinates are forbidden.
+2. The pinned WorldEdit `6.1.3-SNAPSHOT` core artifact supplies only baseline
+   classes not overridden by the fork. This is the exact core baseline used by
+   the legacy FAWE implementation and is resolved from EngineHub's WorldEdit
+   repository. It is embedded in the distribution; it is not a server-side
+   prerequisite.
 3. The pinned official Forge 1.7.10 platform artifact supplies platform
    bootstrap, configuration, sessions, commands, permissions, CUI, and the
    world/entity/NBT adapters. It too is embedded. The local Forge player wins
@@ -37,6 +39,12 @@ The canonical build now embeds the baseline core and Forge platform and makes
 the artifact verifier a dependency of both `check` and `build`. It specifically
 requires `AbstractChunkUpdater`, `WorldEdit`, the Forge mod/platform/world/player
 adapters, the KAWE mod container, and the Forge queue.
+
+The root repository order consults `https://maven.enginehub.org/repo/` before
+legacy aggregate mirrors so WorldEdit snapshot inputs do not depend on the
+DestroyTokyo mirror. The coordinate remains a build input only: the canonical
+Forge shadow jar contains the non-overridden core implementation and does not
+require a separately installed WorldEdit jar.
 
 ## Dependencies and coexistence
 
