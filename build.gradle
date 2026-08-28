@@ -54,6 +54,7 @@ repositories {
 dependencies {
     // WorldEdit Enhanced is supplied as a separate mod at runtime.
     compile 'curse.maven:worldedit-legacy-enhanced-1135144:5879351'
+    testCompile 'junit:junit:4.13.2'
 }
 
 minecraft {

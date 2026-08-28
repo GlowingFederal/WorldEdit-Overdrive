@@ -171,3 +171,15 @@ Changes are listed oldest to newest.
 - Defined the phased hybrid operation plan, per-change raw/native routing,
   snapshots, bounded history, tiles, entities, lifecycle handling, custom extent
   compatibility, migration sequence, risks, and differential validation plan.
+
+## (ea0a295 Add generalized phased operation engine)
+
+- Added operation-level phase plans, per-phase progress and memory ownership,
+  phase-gated round-robin coordinator queues, explicit barriers, cancellation,
+  first-failure handling, and terminal finalization accounting.
+- Added chunk and bounded ordered-sequence scheduling units around the retained
+  Stage 2 chunk representation, plus a generic deterministic operation-wide
+  dependency graph with explicit cycle policy.
+- Added Stage 5A design documentation and synthetic dependency/phase model tests;
+  clipboard paste, snapshots, compressed history, and block-specific dependency
+  tables remain intentionally deferred.
