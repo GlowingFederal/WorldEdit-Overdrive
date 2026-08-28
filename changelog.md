@@ -340,3 +340,12 @@ Changes are listed oldest to newest.
 - Documented feature-rich live verification using directional blocks, air gaps,
   vanilla/modded NBT tiles, and an entity across identity, rotate, flip,
   ignore-air, undo, and redo operations.
+
+## (7b89d7b Generalize the bounded mutation commit engine)
+
+- Introduced reusable, ordering-aware `RegionMutationPlan` and immutable destination `ChunkMutationBatch` primitives, and migrated accelerated paste planning to stable chunk-local batches.
+- Changed deferred mutation scheduling to enforce one global five-millisecond deadline and round-robin owner rotation across active operations instead of granting every operation a separate tick allowance.
+- Added measured adaptive commit sizing with immediate overload contraction and gradual growth between conservative 32- and 4096-mutation bounds.
+- Added server-thread destination-state filtering for ordinary blocks so unchanged ID/metadata states bypass `EditSession.setBlock`, while complete NBT blocks retain the native semantic path.
+- Added a runtime-derived operation support matrix to `/overdrive status` and documented the pinned Enhanced 6.3.0 command inventory, semantic categories, exact fallback reasons, and live validation procedure.
+- Kept replace, geometry, stack, move, neighborhood, expression, and world-generation commands intentionally vanilla until their bounded snapshots, ownership, pattern/mask capabilities, and ordering requirements can be preserved exactly.
