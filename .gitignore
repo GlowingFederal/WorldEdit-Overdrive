@@ -35,7 +35,6 @@ wiki_permissions.md
 /textures
 *.iml
 /obj
-docs/
 /forge1710/run
 
 bukkit/bin/
