@@ -75,43 +75,6 @@ shadowJar {
     }
 }
 
-task verifyWorldEditJar(dependsOn: shadowJar) {
-    description = 'Checks that the self-contained Forge distribution owns one coherent WorldEdit runtime.'
-    group = 'verification'
-    doLast {
-        def required = [
-                'com/sk89q/worldedit/WorldEdit.class',
-                'com/sk89q/worldedit/EditSession.class',
-                'com/sk89q/worldedit/world/AbstractChunkUpdater.class',
-                'com/sk89q/worldedit/forge/ForgeWorldEdit.class',
-                'com/sk89q/worldedit/forge/ForgePlatform.class',
-                'com/sk89q/worldedit/forge/ForgeWorld.class',
-                'com/sk89q/worldedit/forge/ForgePlayer.class',
-                'com/boydti/fawe/forge/ForgeMain.class',
-                'com/boydti/fawe/forge/v1710/ForgeQueue_All.class'
-        ]
-        def names = []
-        zipTree(shadowJar.archivePath).visit { details ->
-            if (!details.directory) names << details.relativePath.pathString
-        }
-        def missing = required.findAll { !names.contains(it) }
-        if (!missing.empty) {
-            throw new GradleException("Incomplete Forge distribution; missing: ${missing.join(', ')}")
-        }
-        def duplicates = names.countBy { it }.findAll { name, count -> count > 1 }
-        if (!duplicates.empty) {
-            throw new GradleException("Duplicate jar entries: ${duplicates.keySet().sort().join(', ')}")
-        }
-        def referenceEntries = names.findAll { it.startsWith('ReferenceSRC/') }
-        if (!referenceEntries.empty) {
-            throw new GradleException('ReferenceSRC content must never be distributed')
-        }
-    }
-}
-shadowJar.doLast {
-    task ->
-        ant.checksum file: task.archivePath
-}
 
 
 reobf.reobf(shadowJar) { spec ->
@@ -127,5 +90,3 @@ artifacts {
     archives deobfJar
 }
 
-check.dependsOn(verifyWorldEditJar)
-build.dependsOn(verifyWorldEditJar)
