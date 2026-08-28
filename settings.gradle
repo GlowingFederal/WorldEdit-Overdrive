@@ -1,3 +1,4 @@
-rootProject.name = 'KAWE'
+rootProject.name = 'WorldEditOverdrive'
 
-include 'core', 'bukkit', 'forge1710'
+// Legacy modules remain in the repository as reference material only. The root
+// project is the sole active Forge module.
