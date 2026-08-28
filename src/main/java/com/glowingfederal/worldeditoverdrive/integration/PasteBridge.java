@@ -18,9 +18,11 @@ public final class PasteBridge {
         PasteHookStatus.pasteBridgeInvocations.incrementAndGet();
         if(!(operation instanceof ForwardExtentCopy))return fallback("PasteBuilder did not return ForwardExtentCopy");
         PasteOperationAdapter.Result recognized=PasteOperationAdapter.recognize((ForwardExtentCopy)operation);
+        PasteHookStatus.lastPasteGraphDiagnostic=recognized.diagnostic;
         if(!recognized.isRecognized())return fallback(recognized.reason);
         try {
             DeferredPasteManager.register((ForwardExtentCopy)operation,recognized.adapter,player,session,selectPasted);
+            PasteHookStatus.lastPasteFallbackReason=null;
             PasteHookStatus.lastPasteDeferredReason="owned standard Enhanced 6.3.0 paste graph";
             return Decision.DEFERRED;
         } catch(Throwable unavailable) { return fallback("deferred ownership unavailable: "+unavailable.toString()); }
@@ -29,6 +31,7 @@ public final class PasteBridge {
     public static Result tryCreateContinuation(ForwardExtentCopy operation) {
         PasteHookStatus.pasteBridgeInvocations.incrementAndGet();
         PasteOperationAdapter.Result recognized=PasteOperationAdapter.recognize(operation);
+        PasteHookStatus.lastPasteGraphDiagnostic=recognized.diagnostic;
         String reason=recognized.isRecognized()?"async continuation runner not installed":recognized.reason;
         PasteHookStatus.pasteFallbacks.incrementAndGet();PasteHookStatus.lastPasteFallbackReason=reason;
         return new Result(Decision.VANILLA,null,reason);
