@@ -15,6 +15,7 @@ public final class Stage4HookStatus {
     public static volatile boolean selectionCommandDescriptorMatched;
     public static volatile String targetNames;
     public static volatile String lastFallbackReason;
+    public static volatile String hookReason="SelectionCommand not transformed";
     public static final AtomicLong bridgeInvocations = new AtomicLong();
     public static final AtomicLong acceleratedInvocations = new AtomicLong();
     public static final AtomicLong fallbackInvocations = new AtomicLong();

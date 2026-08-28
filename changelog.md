@@ -147,3 +147,17 @@ Changes are listed oldest to newest.
   reported legacy diagnostic.
 - Preserved nullable, pre-mutation fallback and existing command feedback, and
   made ACTIVE status depend only on installation of the real command-path hook.
+
+## (eecd9b6 Fix Stage 4 Enhanced completion interception)
+
+- Anchored the active command transformer solely to the exact static
+  `Operations.completeBlindly(Operation): void` boundary and captured its
+  already-stacked operation without assuming a construction helper or fixed
+  command locals.
+- Reworked the operation bridge to derive the supported `RegionVisitor`, region,
+  `BlockReplace`, and owning `EditSession` shape from that completion argument,
+  retaining untouched native fallback for every unsupported operation.
+- Made absent, ambiguous, or incompatible completion bytecode fail open with
+  explicit diagnostics and accurate ACTIVE/INACTIVE status, and documented the
+  runtime descriptors, stack strategy, frame recomputation, and remaining
+  validation boundary.

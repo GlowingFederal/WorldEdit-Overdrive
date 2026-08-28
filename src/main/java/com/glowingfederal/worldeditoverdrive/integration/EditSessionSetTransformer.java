@@ -22,6 +22,7 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     private static final String COMMAND_TARGET="com.sk89q.worldedit.command.composition.SelectionCommand";
     private static final String LEGACY_DESC="(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)I";
     private static final String CALL_DESC="(Lcom/sk89q/worldedit/util/command/argument/CommandArgs;Lcom/sk89q/minecraft/util/commands/CommandLocals;)Lcom/sk89q/worldedit/function/operation/Operation;";
+    private static final String COMPLETE_DESC="(Lcom/sk89q/worldedit/function/operation/Operation;)V";
 
     public EditSessionSetTransformer(){Stage4HookStatus.transformerRegistered=true;}
 
@@ -55,42 +56,61 @@ public final class EditSessionSetTransformer implements IClassTransformer {
 
     private byte[] transformCommand(String name,String transformedName,byte[] bytes) {
         Stage4HookStatus.selectionCommandSeen=true;
-        ClassNode node=new ClassNode(); new ClassReader(bytes).accept(node,0); int methods=0,factories=0,completions=0;
-        for(MethodNode method:node.methods) if("call".equals(method.name)&&CALL_DESC.equals(method.desc)) {
-            methods++; AbstractInsnNode operationStore=null,completion=null;
-            for(AbstractInsnNode insn=method.instructions.getFirst();insn!=null;insn=insn.getNext()) if(insn instanceof MethodInsnNode) {
-                MethodInsnNode call=(MethodInsnNode)insn;
-                if("com/sk89q/worldedit/function/Contextual".equals(call.owner)&&"createFromContext".equals(call.name)) {
-                    AbstractInsnNode next=nextCode(insn.getNext());
-                    if(next instanceof VarInsnNode&&next.getOpcode()==Opcodes.ASTORE){operationStore=next;factories++;}
+        try {
+            ClassNode node=new ClassNode(); new ClassReader(bytes).accept(node,ClassReader.SKIP_FRAMES);
+            int methods=0,completions=0,operationLocal=-1; MethodNode target=null; MethodInsnNode completion=null;
+            String observedCompletion="none";
+            for(MethodNode method:node.methods) if("call".equals(method.name)&&CALL_DESC.equals(method.desc)) {
+                methods++; target=method;
+                for(AbstractInsnNode insn=method.instructions.getFirst();insn!=null;insn=insn.getNext()) if(insn instanceof MethodInsnNode) {
+                    MethodInsnNode call=(MethodInsnNode)insn;
+                    if("com/sk89q/worldedit/function/operation/Operations".equals(call.owner)&&"completeBlindly".equals(call.name)) {
+                        completions++; completion=call; observedCompletion=call.desc;
+                        AbstractInsnNode source=previousCode(insn.getPrevious());
+                        if(source instanceof VarInsnNode&&source.getOpcode()==Opcodes.ALOAD)operationLocal=((VarInsnNode)source).var;
+                    }
                 }
-                if("com/sk89q/worldedit/function/operation/Operations".equals(call.owner)&&"completeBlindly".equals(call.name)){completion=call;completions++;}
             }
-            if(operationStore!=null&&completion!=null) {
-                int operation=((VarInsnNode)operationStore).var;
-                LabelNode nativePath=new LabelNode(),feedback=new LabelNode(); InsnList hook=new InsnList();
-                // Exact Enhanced 6.3.0 call layout, checked together with both semantic anchors above.
-                hook.add(new VarInsnNode(Opcodes.ALOAD,8)); hook.add(new VarInsnNode(Opcodes.ALOAD,7)); hook.add(new VarInsnNode(Opcodes.ALOAD,operation));
-                hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/Stage4SetBridge","trySetOperation",
-                        "(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/function/operation/Operation;)Ljava/lang/Integer;",false));
-                hook.add(new InsnNode(Opcodes.DUP)); hook.add(new JumpInsnNode(Opcodes.IFNULL,nativePath));
-                hook.add(new InsnNode(Opcodes.POP)); hook.add(new JumpInsnNode(Opcodes.GOTO,feedback));
-                hook.add(nativePath); hook.add(new FrameNode(Opcodes.F_SAME1,0,null,1,new Object[]{"java/lang/Integer"})); hook.add(new InsnNode(Opcodes.POP));
-                method.instructions.insert(operationStore,hook);
-                method.instructions.insert(completion,feedback);
-            }
+            boolean safe=methods==1&&completions==1&&completion!=null&&completion.getOpcode()==Opcodes.INVOKESTATIC
+                    &&!completion.itf&&COMPLETE_DESC.equals(completion.desc);
+            OverdriveLog.info("Stage 4 bytecode: target={} method=call{} completeBlindlyCandidates={} completionDescriptor={} operationSource={}",
+                    COMMAND_TARGET,CALL_DESC,completions,observedCompletion,operationLocal<0?"operand stack":"local "+operationLocal);
+            Stage4HookStatus.selectionCommandDescriptorMatched=safe;
+            if(!safe)return commandUnavailable(bytes,"completeBlindly anchor not safely patchable (methods="+methods+", candidates="+completions+", descriptor="+observedCompletion+")");
+
+            LabelNode nativePath=new LabelNode(),feedback=new LabelNode(); InsnList hook=new InsnList();
+            // The original Operation is already on the stack as completeBlindly's sole argument.
+            hook.add(new InsnNode(Opcodes.DUP));
+            hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/Stage4SetBridge","trySetOperation",
+                    "(Lcom/sk89q/worldedit/function/operation/Operation;)Ljava/lang/Integer;",false));
+            hook.add(new InsnNode(Opcodes.DUP)); hook.add(new JumpInsnNode(Opcodes.IFNULL,nativePath));
+            hook.add(new InsnNode(Opcodes.POP)); hook.add(new InsnNode(Opcodes.POP)); hook.add(new JumpInsnNode(Opcodes.GOTO,feedback));
+            hook.add(nativePath); hook.add(new InsnNode(Opcodes.POP));
+            target.instructions.insertBefore(completion,hook); target.instructions.insert(completion,feedback);
+            ClassWriter writer=new SafeClassWriter(ClassWriter.COMPUTE_FRAMES|ClassWriter.COMPUTE_MAXS); node.accept(writer);
+            Stage4HookStatus.activeSetCommandHookInstalled=true; Stage4HookStatus.hookInstalled=true; Stage4HookStatus.hookReason="installed";
+            OverdriveLog.info("Stage 4 bytecode: hookInstalled=yes");
+            return writer.toByteArray();
+        } catch(Throwable incompatible) {
+            return commandUnavailable(bytes,"completeBlindly anchor not safely patchable: "+incompatible.toString());
         }
-        boolean matched=methods==1&&factories==1&&completions==1;
-        Stage4HookStatus.selectionCommandDescriptorMatched=matched;
-        if(!matched)throw new IllegalStateException("Expected SelectionCommand call anchors once; methods="+methods+", factories="+factories+", completions="+completions);
-        ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS); node.accept(writer);
-        Stage4HookStatus.activeSetCommandHookInstalled=true; Stage4HookStatus.hookInstalled=true;
-        OverdriveLog.info("Stage 4 active /set hook installed into SelectionCommand#call (name={}, transformedName={})",name,transformedName);
-        return writer.toByteArray();
     }
 
-    private static AbstractInsnNode nextCode(AbstractInsnNode node) {
-        while(node!=null&&(node.getType()==AbstractInsnNode.LABEL||node.getType()==AbstractInsnNode.LINE||node.getType()==AbstractInsnNode.FRAME))node=node.getNext();
+    private static byte[] commandUnavailable(byte[] bytes,String reason) {
+        Stage4HookStatus.selectionCommandDescriptorMatched=false; Stage4HookStatus.activeSetCommandHookInstalled=false;
+        Stage4HookStatus.hookInstalled=false; Stage4HookStatus.hookReason=reason;
+        OverdriveLog.warn("WorldEdit Overdrive: active //set hook unavailable for this Enhanced bytecode; acceleration disabled ({})",reason);
+        OverdriveLog.info("Stage 4 bytecode: hookInstalled=no");
+        return bytes;
+    }
+
+    private static AbstractInsnNode previousCode(AbstractInsnNode node) {
+        while(node!=null&&(node.getType()==AbstractInsnNode.LABEL||node.getType()==AbstractInsnNode.LINE||node.getType()==AbstractInsnNode.FRAME))node=node.getPrevious();
         return node;
+    }
+
+    private static final class SafeClassWriter extends ClassWriter {
+        SafeClassWriter(int flags){super(flags);}
+        protected String getCommonSuperClass(String first,String second){return first.equals(second)?first:"java/lang/Object";}
     }
 }
