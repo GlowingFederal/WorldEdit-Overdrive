@@ -32,6 +32,10 @@ The Forge artifact in `target/` is self-contained: it packages the legacy
 WorldEdit core and Forge 1.7.10 platform together with KAWE. Do **not** install
 WorldEdit, WorldEdit Enhanced, or another WorldEdit Forge jar beside it. Forge's
 duplicate `worldedit` mod-id check intentionally rejects that unsupported setup.
+The embedded core remainder is built from the legacy FAWE baseline
+`com.sk89q.worldedit:worldedit-core:6.1.3-SNAPSHOT`, resolved through EngineHub's
+WorldEdit Maven repository; that coordinate is a build input, not a server
+dependency.
 
 The Forge build runs `verifyWorldEditJar`, which checks the distributable (rather
 than merely the compiler class path) for its bootstrap, platform adapters,
