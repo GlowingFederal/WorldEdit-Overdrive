@@ -1,5 +1,10 @@
 # WorldEdit Overdrive
 
+The Stage 5A backend now includes a generalized, tick-budgeted phased operation
+plan for future reorder-aware operations. See
+[`docs/stage-5a-phased-engine.md`](docs/stage-5a-phased-engine.md). Clipboard
+paste, destination snapshots, and history redesign remain future stages.
+
 Stage 4.6 dedicated-server installation, diagnostics, compatibility decisions,
 and the live verification matrix are documented in
 [`docs/stage-4.6-dedicated-server.md`](docs/stage-4.6-dedicated-server.md).
