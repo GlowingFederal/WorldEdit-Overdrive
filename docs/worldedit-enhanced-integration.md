@@ -14,8 +14,15 @@ plain Maven repository because ForgeGradle 1.2 has no `fg.deobf` API.
 The old `worldedit-core:6.1.3-SNAPSHOT` and published
 `worldedit-forge-mc1.7.10` dependencies are removed. The Forge shadow task has
 no WorldEdit includes, implementation allow-list, or duplicate-ordering rule.
-It packages KAWE's core output and private libraries only. `ReferenceSRC` is not
-part of any source set and is never compiled or packaged.
+It adds `project(':core').sourceSets.main.output` directly to the canonical jar,
+alongside the Forge source-set output and private shaded libraries. Direct output
+inclusion is required because the legacy Shadow plugin's dependency filter does
+not reliably expand Gradle project output: `compile project(':core')` makes those
+classes available while compiling but does not itself put them in the shadow
+archive. This includes every KAWE-owned `com.boydti.fawe` class and every retained
+`com.sk89q.worldedit` override/addition without nesting the core jar or copying
+Enhanced wholesale. `ReferenceSRC` is not part of any source set and is never
+compiled or packaged.
 
 Enhanced requires and directly uses FalsePatternLib. KAWE does not call an FPL
 API, so it deliberately does not duplicate Enhanced's FPL dependency metadata
