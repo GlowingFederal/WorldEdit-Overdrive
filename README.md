@@ -49,3 +49,9 @@ retained solely as legacy migration reference and are not compiled or packaged.
 
 The first constant-cuboid `//set` integration, its conservative eligibility/fallback contract, history model, and outstanding runtime validation are documented in [`docs/stage-4-constant-fill.md`](docs/stage-4-constant-fill.md).
 The active hook is fail-open across unsupported Enhanced bytecode: `/overdrive status` reports ACTIVE only when the single, exact `SelectionCommand` completion boundary was patched, and otherwise reports INACTIVE plus `hookReason` while WorldEdit retains its native traversal.
+
+## Architectural roadmap
+
+The Stage 5 design gate for generalized hybrid WorldEdit operations and large
+clipboard pastes is documented in
+[`docs/stage-5-generalized-operation-plan.md`](docs/stage-5-generalized-operation-plan.md).
