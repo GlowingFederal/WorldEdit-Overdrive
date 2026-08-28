@@ -1,8 +1,8 @@
 [{
     "modid": "kawe",
-    "name": "KamAsyncWorldEdit (WorldEdit + FAWE)",
-    "description": "Self-contained Forge 1.7.10 WorldEdit platform and core with FAWE/KAWE acceleration; do not install a separate WorldEdit mod.",
+    "name": "KamAsyncWorldEdit",
+    "description": "FAWE acceleration and integration for WorldEdit Enhanced 6.3.0.",
     "version": "1.0",
     "mcVersion": "1.7.10",
-    "dependencies": []
+    "dependencies": ["worldedit"]
 }]

@@ -30,7 +30,7 @@ clean { delete "../target" }
 
 dependencies {
     compile project(':core')
-    compile 'com.sk89q.worldedit:worldedit-forge-mc1.7.10:6.1.1-20151030.011615-19'
+    compile 'curse.maven:worldedit-legacy-enhanced-1135144:5879351'
     compile 'org.xerial:sqlite-jdbc:3.34.0' // or the latest version
 }
 
@@ -53,19 +53,14 @@ processResources {
 }
 
 shadowJar {
-    // This is the Forge distribution, not an add-on for a separately installed
-    // WorldEdit. Keep the platform and the unmodified remainder of core in the
-    // same jar as KAWE. Project output is added first and is therefore the
-    // authority for every FAWE-overridden WorldEdit class.
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    // WorldEdit Enhanced is an external runtime mod. Only package KAWE and its
+    // private libraries; never assemble or shadow a WorldEdit distribution.
     relocate 'org.yaml.snakeyaml', 'com.boydti.fawe.yaml'
     dependencies {
         include(dependency('com.github.luben:zstd-jni:1.1.1'))
 //        include(dependency('org.javassist:javassist:3.22.0-CR1'))
         include(dependency('co.aikar:fastutil-lite:1.0'))
         include(dependency(':core'))
-        include(dependency('com.sk89q.worldedit:worldedit-core'))
-        include(dependency('com.sk89q.worldedit:worldedit-forge-mc1.7.10'))
         include(dependency('org.yaml:snakeyaml:1.16'))
     }
     archiveName = "${parent.name}-${project.name}-${parent.version}.jar"
@@ -89,4 +84,3 @@ task deobfJar(type: Jar) {
 artifacts {
     archives deobfJar
 }
-
