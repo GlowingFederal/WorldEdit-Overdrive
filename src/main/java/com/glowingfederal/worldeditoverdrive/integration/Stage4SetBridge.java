@@ -6,6 +6,7 @@ import com.glowingfederal.worldeditoverdrive.backend.PreparedChunkChange;
 import com.glowingfederal.worldeditoverdrive.backend.ServerThreadGuard;
 import com.glowingfederal.worldeditoverdrive.backend.SideEffectPolicy;
 import com.glowingfederal.worldeditoverdrive.execution.ChunkSynchronizer;
+import com.glowingfederal.worldeditoverdrive.history.OverdriveChangeSet;
 import com.glowingfederal.worldeditoverdrive.OverdriveLog;
 import com.sk89q.jnbt.CompoundTag;
 import com.sk89q.worldedit.BlockVector;
@@ -102,15 +103,18 @@ public final class Stage4SetBridge {
         List<PreparedChunkChange> changes=ConstantFillPlanner.prepareChanged(world,(CuboidRegion)region,block,tile);
         long filtered=System.nanoTime();
         if (!reserveLimit(session,(int)volume)) return fallback("BlockChangeLimiter state unavailable");
+        OverdriveChangeSet history=new OverdriveChangeSet(session.getWorld(),64L<<20);
+        session.setChangeSet(history);
         int affected=0, raw=0, nativeCount=0, dense=0, sparse=0,sparsePackets=0,chunkPackets=0; long historyNanos=0, commitNanos=0,
                 lightingNanos=0, syncNanos=0, preparedBytes=0;
         for(PreparedChunkChange change:changes) preparedBytes+=change.estimatedBytes();
         String phaseName="history/commit/synchronization"; PreparedChunkChange active=null; boolean mutationStarted=false;
         try { for(PreparedChunkChange change:changes) { active=change;
             long phase=System.nanoTime();
-            captureHistory(session,change,block);
+            captureHistory(world,history,change,block);
             historyNanos+=System.nanoTime()-phase; phase=System.nanoTime(); mutationStarted=true;
             ChunkCommitResult result=writer.commit(world,change,SideEffectPolicy.RAW);
+            history.commitPrepared(result.getChangedBlocks());
             commitNanos+=System.nanoTime()-phase; lightingNanos+=result.getLightingNanos();
             raw+=result.getRawBlocks(); nativeCount+=result.getNativeBlocks(); dense+=result.getDenseSections();
             sparse+=result.getTouchedSections()-result.getDenseSections();
@@ -119,6 +123,7 @@ public final class Stage4SetBridge {
             if(strategy==ChunkSynchronizer.Strategy.CHUNK)chunkPackets++;else if(strategy==ChunkSynchronizer.Strategy.MULTI_BLOCK)sparsePackets++;
             syncNanos+=System.nanoTime()-phase; affected+=result.getChangedBlocks();
         }} catch(Throwable failure){
+            history.seal();
             long total=System.nanoTime()-started;
             String where=active==null?"": " chunk="+active.getChunkX()+","+active.getChunkZ();
             OverdriveEditSummary summary=new OverdriveEditSummary("//set","accelerated",volume,affected,changes.size(),dense,sparse,raw,nativeCount,
@@ -129,7 +134,7 @@ public final class Stage4SetBridge {
             if(failure instanceof RuntimeException)throw (RuntimeException)failure;
             throw new RuntimeException(failure);
         }
-        long total=System.nanoTime()-started;
+        history.seal();long total=System.nanoTime()-started;
         OverdriveEditSummary summary=new OverdriveEditSummary("//set","accelerated",volume,affected,changes.size(),dense,sparse,raw,nativeCount,
                 planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,0,preparedBytes,true,null,null);
         OverdriveSummaries.publish(summary);
@@ -182,7 +187,7 @@ public final class Stage4SetBridge {
     private static String type(Object value) { return value==null ? "null" : value.getClass().getName(); }
     private static String value(Object value) { return value==null ? "null" : type(value)+"("+value+")"; }
 
-    private static void captureHistory(EditSession session, PreparedChunkChange change, final BaseBlock current) {
+    private static void captureHistory(final WorldServer world,final OverdriveChangeSet history, PreparedChunkChange change, final BaseBlock current) {
         for(int sy=0;sy<16;sy++) if(change.getSection(sy)!=null) {
             final int section=sy;
             change.getSection(sy).forEach(new com.glowingfederal.worldeditoverdrive.backend.SectionChange.Visitor(){
@@ -190,11 +195,16 @@ public final class Stage4SetBridge {
                     int x=(change.getChunkX()<<4)|com.glowingfederal.worldeditoverdrive.backend.SectionChange.localX(index);
                     int y=(section<<4)|com.glowingfederal.worldeditoverdrive.backend.SectionChange.localY(index);
                     int z=(change.getChunkZ()<<4)|com.glowingfederal.worldeditoverdrive.backend.SectionChange.localZ(index);
-                    Vector position=new BlockVector(x,y,z);
-                    session.getChangeSet().add(new BlockChange((BlockVector)position,session.getWorld().getBlock(position),current));
+                    net.minecraft.block.Block old=world.getBlock(x,y,z);int from=net.minecraft.block.Block.getIdFromBlock(old)<<4|world.getBlockMetadata(x,y,z);
+                    history.prepare(x,y,z,from,current.getId()<<4|current.getData(),tile(world.getTileEntity(x,y,z)),current.getNbtData());
                 }});
         }
     }
+
+    private static CompoundTag tile(net.minecraft.tileentity.TileEntity tile){if(tile==null)return null;try{
+        NBTTagCompound nativeTag=new NBTTagCompound();tile.writeToNBT(nativeTag);Class<?> type=Class.forName("com.sk89q.worldedit.forge.NBTConverter");
+        Method method=type.getDeclaredMethod("fromNative",NBTTagCompound.class);method.setAccessible(true);return (CompoundTag)method.invoke(null,nativeTag);
+    }catch(Exception incompatible){throw new IllegalStateException("tile history translation unavailable",incompatible);}}
 
     private static NBTTagCompound toNative(BaseBlock block) {
         CompoundTag tag=block.getNbtData(); if(tag==null)return null;
