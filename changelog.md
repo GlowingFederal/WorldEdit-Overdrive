@@ -250,3 +250,24 @@ Changes are listed oldest to newest.
   mutating, already-started, or otherwise ambiguous graphs fall back precisely.
 - Updated runtime-shape tests and Stage 5C documentation. Paste interception,
   async submission, traversal suppression, and world mutation remain inactive.
+
+## (7046654 Install live deferred paste interception)
+
+- Installed the first active Stage 5C hook at Enhanced 6.3.0's exact
+  `ClipboardCommands#paste(Player, LocalSession, EditSession, boolean, boolean,
+  boolean)` `Operations.completeLegacy(Operation)` call site, with exact
+  descriptor/call matching and fail-open vanilla fallback.
+- Connected real standard paste operations to the strict paste bridge and made
+  ownership explicit: vanilla execution is suppressed only after the adapter
+  accepts the graph and the deferred manager successfully registers its owner.
+- Added later-END-tick, server-thread execution of the retained original
+  `ForwardExtentCopy`, preserving Enhanced traversal, transforms, air handling,
+  repetitions, entities, affected count, extent behavior, and failure reporting.
+- Retained the original EditSession through deferred execution, remembered and
+  flushed its native history after mutation for live `//undo`, and delayed the
+  original selection/success behavior until actual completion.
+- Added active/completed/failed deferred-paste diagnostics and precise fallback
+  reasons while keeping `pasteAccelerated` separate and unchanged.
+- Updated Stage 5C documentation with the installed interception point,
+  ownership order, tick lifecycle, feedback/history boundary, fallback rules,
+  status fields, and immediate real-server verification procedure.
