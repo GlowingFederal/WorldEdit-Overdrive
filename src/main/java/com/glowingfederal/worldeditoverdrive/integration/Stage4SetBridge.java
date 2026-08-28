@@ -19,6 +19,7 @@ import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.regions.Region;
 import cpw.mods.fml.common.FMLLog;
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 import java.util.List;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.world.WorldServer;
@@ -56,30 +57,62 @@ public final class Stage4SetBridge {
         try { volume=ConstantFillPlanner.volume((CuboidRegion)region); }
         catch (ArithmeticException overflow) { return fallback("cuboid volume overflow"); }
         if (region.getMinimumPoint().getBlockY()<0 || region.getMaximumPoint().getBlockY()>255) return fallback("out-of-height range");
-        int limit=session.getBlockChangeLimit();
-        if (limit>=0 && volume>limit) throw new MaxChangedBlocksException(limit);
         if (volume>Integer.MAX_VALUE) return fallback("volume over Enhanced limit: "+volume); // return/history are int bounded.
 
         WorldServer world=(WorldServer)nativeWorld;
         ServerThreadGuard.capture();
         NBTTagCompound tile=toNative(block);
         if (block.getNbtData()!=null && tile==null) return fallback("tile NBT conversion unavailable");
-        List<PreparedChunkChange> changes=ConstantFillPlanner.prepare((CuboidRegion)region,block,tile);
+        net.minecraft.block.Block nativeBlock=net.minecraft.block.Block.getBlockById(block.getId());
+        if (nativeBlock==null) return fallback("unregistered legacy ID="+block.getId());
+        if (tile!=null && !nativeBlock.hasTileEntity(block.getData())) return fallback("NBT supplied for non-tile block");
         ForgeChunkWriter writer=new ForgeChunkWriter(); ChunkSynchronizer sync=new ChunkSynchronizer();
-        long started=System.nanoTime(); int affected=0, raw=0, nativeCount=0, dense=0, sparse=0;
+        long started=System.nanoTime();
+        List<PreparedChunkChange> changes=ConstantFillPlanner.prepareChanged(world,(CuboidRegion)region,block,tile);
+        long planned=System.nanoTime();
+        if (!reserveLimit(session,(int)volume)) return fallback("BlockChangeLimiter state unavailable");
+        int affected=0, raw=0, nativeCount=0, dense=0, sparse=0; long historyNanos=0, commitNanos=0,
+                lightingNanos=0, syncNanos=0, preparedBytes=0;
+        for(PreparedChunkChange change:changes) preparedBytes+=change.estimatedBytes();
         for(PreparedChunkChange change:changes) {
+            long phase=System.nanoTime();
             captureHistory(session,change,block);
+            historyNanos+=System.nanoTime()-phase; phase=System.nanoTime();
             ChunkCommitResult result=writer.commit(world,change,SideEffectPolicy.RAW);
+            commitNanos+=System.nanoTime()-phase; lightingNanos+=result.getLightingNanos();
             raw+=result.getRawBlocks(); nativeCount+=result.getNativeBlocks(); dense+=result.getDenseSections();
             sparse+=result.getTouchedSections()-result.getDenseSections();
             Chunk chunk=world.getChunkFromChunkCoords(change.getChunkX(),change.getChunkZ());
-            sync.synchronize(world,chunk,change,result,512); affected+=result.getChangedBlocks();
+            phase=System.nanoTime(); sync.synchronize(world,chunk,change,result,512);
+            syncNanos+=System.nanoTime()-phase; affected+=result.getChangedBlocks();
         }
-        FMLLog.info("Overdrive //set completed: %d blocks, %d chunks, %d dense/%d sparse sections, "
-                + "%d raw/%d native, %.3f ms",affected,changes.size(),dense,sparse,raw,nativeCount,
-                (System.nanoTime()-started)/1000000D);
+        long total=System.nanoTime()-started;
+        // INFO is intentionally operation-level and uses FML's normal server log route.
+        FMLLog.info("Overdrive //set: %,d changed, %,d chunks, %,d dense sections, %,d sparse sections, "
+                + "%,d raw / %,d native, plan %.3f ms, history %.3f ms, commit %.3f ms "
+                + "(lighting/finalization %.3f ms), sync %.3f ms, total %.3f ms, peak prepared %,d bytes",
+                affected,changes.size(),dense,sparse,raw,nativeCount,(planned-started)/1000000D,
+                historyNanos/1000000D,commitNanos/1000000D,lightingNanos/1000000D,
+                syncNanos/1000000D,total/1000000D,preparedBytes);
         Stage4HookStatus.acceleratedInvocations.incrementAndGet();
         return affected;
+    }
+
+    /** Reserve the same attempted-position budget consumed by Enhanced's limiter. */
+    private static boolean reserveLimit(EditSession session,int attempts) throws MaxChangedBlocksException {
+        int limit=session.getBlockChangeLimit();
+        if(limit<0)return true;
+        try {
+            Field limiterField=EditSession.class.getDeclaredField("changeLimiter"); limiterField.setAccessible(true);
+            Object limiter=limiterField.get(session);
+            Method getCount=limiter.getClass().getMethod("getCount");
+            int count=((Integer)getCount.invoke(limiter)).intValue();
+            if((long)count+attempts>limit)throw new MaxChangedBlocksException(limit);
+            Field countField=limiter.getClass().getDeclaredField("count"); countField.setAccessible(true);
+            countField.setInt(limiter,count+attempts);
+            return true;
+        } catch(MaxChangedBlocksException expected) { throw expected; }
+        catch(Exception incompatible) { FMLLog.warning("Overdrive limiter handshake unavailable: %s",incompatible.toString()); return false; }
     }
 
     private static Integer fallback(String reason) {

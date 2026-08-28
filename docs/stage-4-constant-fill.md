@@ -62,13 +62,13 @@ Legacy FAWE's replacement `EditSession`, broad `com.boydti.fawe` queue extent st
 
 ## Validation and measured status
 
-Static inspection can verify package ownership, transformer target/descriptors, world-read boundaries, dense fill construction, and absence of `//replace`/general-pattern handling. A dedicated 1.7.10 server/client fixture is not present in this checkout, so the requested runtime world matrix, save/reload, visual synchronization, injected preparation/commit failures, shutdown, undo exercise, and plain-Enhanced versus Overdrive timings have **not** been claimed. Lighting time is included in total commit wall time but is not separately instrumented yet.
+Static inspection can verify package ownership, transformer target/descriptors, world-read boundaries, dense fill construction, and absence of `//replace`/general-pattern handling. A dedicated 1.7.10 server/client fixture is not present in this checkout, so the requested runtime world matrix, save/reload, visual synchronization, injected preparation/commit failures, shutdown, undo exercise, and plain-Enhanced versus Overdrive timings have **not** been claimed. Lighting is now instrumented separately inside total commit wall time.
 
 For a diagnostic server run, the startup sequence must contain the core-plugin
 initialization line, the `EditSession#setBlocks(Region, Pattern)` installation
 line, and an `ACTIVE` summary. Run vanilla cuboid `//set stone`, `//set air`, and
 one legacy metadata value. Every call must increment the bridge counter and
-either print `Overdrive //set completed` or one exact fallback reason; the type
+either print `Overdrive //set:` or one exact fallback reason; the type
 line establishes whether command binding supplied the expected objects and
 whether reorder was enabled. An `INACTIVE` summary is a hard integration failure,
 not a ready state.
@@ -84,3 +84,74 @@ The benchmark matrix to run on the fixture is: aligned stone and air cuboids, un
 * Replace object-per-block Enhanced history with bounded compressed/disk-backed history only after equivalent undo/redo and tile tests exist.
 * Add cancellation linkage at the command/session boundary; synchronous Stage 4 has no Enhanced cancellation seam, although Stage 3 operations remain internally cancellable.
 * General replacement matching, masks, nonconstant patterns, clipboard work, and arbitrary iterable regions remain out of scope.
+
+## Stage 4.5 hardening and measurement
+
+The completion message was not on an alternate execution path: the bridge's only
+successful return is after the operation-level `FMLLog.info` call. That logger is
+routed to the normal Forge/FML server log (commonly `ForgeModLoader-server-0.log`),
+and an INFO console filter may omit it. A run showing an accelerated counter but
+no old `Overdrive //set completed` text may also be using a jar predating that
+wording. The permanent message now begins `Overdrive //set:` and is emitted once,
+after synchronization, for every successful accelerated call. It reports actual
+changed positions, changed chunks, dense/sparse sections, raw/native placements,
+planning, Enhanced history, total commit, the `generateSkylightMap` portion,
+synchronization, total wall time, and peak simultaneously retained prepared bytes.
+
+Planning now reads the live world on the captured server thread and omits positions
+whose ID and metadata already match. If the destination carries explicit NBT, the
+live tile's full serialized NBT (with destination coordinates normalized) must
+also match. Omitted positions create no history, placement, dirty column, tile
+lifecycle, packet coordinate, or affected count. Dense representation is retained
+when at least 512 positions differ, including a wholly changed 16x16x16 section.
+
+Enhanced's `BlockChangeLimiter` counts **attempted calls before delegation**, not
+successful changes: unchanged and rejected calls consume the limit, and repeated
+calls consume it repeatedly. The exact-`EditSession` bridge therefore reserves the
+entire selected volume against the limiter's existing count before mutation while
+returning only actual changes. If the known Enhanced limiter handshake cannot be
+resolved, acceleration falls back before mutation. Unlike Enhanced's sequential
+visitor, this preflight is atomic: an over-limit fill makes no partial edit.
+
+History remains Enhanced `BlockChange` history and command/session ownership is
+unchanged, so normal Enhanced undo and redo consume the same retained change set.
+No Overdrive redo mechanism exists. Commit timing includes raw/native placement,
+section counters, tile lifecycle, chunk dirtying and finalization; the nested
+lighting/finalization figure measures `Chunk.generateSkylightMap()` only. History
+and synchronization are measured separately. No per-block logging or timing was
+introduced.
+
+The synchronous bridge does **not** submit to `OverdriveCoordinator`,
+`ChunkPreparationTask`, its worker pool, byte backpressure, tick budgets, or fair
+commit queue. It plans and commits serially on the command/server thread and calls
+only the Stage 2 writer plus Stage 3's watcher-aware `ChunkSynchronizer`. Therefore
+this source path supplies no preparation-worker parallelism; a process-wide CPU
+burst cannot be attributed to Stage 3 without an external profiler and may be JVM
+allocation/GC, lighting, networking, or other server activity. Command completion
+still waits for the full reported wall time.
+
+### Runtime validation record
+
+This checkout has no runnable Forge 1.7.10 server, Enhanced 6.3.0 server/client
+fixture, installed high-ID mod, or baseline world snapshots. Consequently it would
+be misleading to invent paired timings or claim client, restart, undo, redo, tile,
+or lighting observations. The following remain runtime-required:
+
+* changed-count cases (all same, half same, all different, air/air, metadata, and
+  explicit tile NBT), plus undo/redo from equivalent snapshots;
+* aligned sections/chunks, awkward X/Z/Y crossings, negative coordinates, Y=0 and
+  Y=255, with block-by-block comparison to plain Enhanced;
+* a real ID above 255 through high-to-low, high-to-air, metadata, undo and restart,
+  including inspection that the section MSB nibble is zeroed;
+* raw stone and conservative-native ticking/modded/tile states; chest, furnace,
+  tile transitions and custom NBT; watcher-only sparse/dense/tile packets;
+* opaque placement/removal, absent/cleared sections, large air, contextual opacity,
+  save/reload, and paired A-F benchmark timings requested for Enhanced and Overdrive.
+
+Until that matrix is recorded, the classification is **NOT VALIDATED**. This is a
+statement about unavailable runtime evidence, not a claim that activation failed.
+No Stage 5 implementation should begin from static results alone. The single
+provisional Stage 5 recommendation is **coordinated asynchronous/tick-budgeted
+WorldEdit execution**, because this confirmed synchronous call path necessarily
+stalls the server thread for its full wall time; runtime phase measurements must
+confirm or revise that choice before implementation.

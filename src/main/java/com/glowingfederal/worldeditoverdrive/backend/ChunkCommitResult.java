@@ -5,16 +5,18 @@ public final class ChunkCommitResult {
     private final int changedBlocks, touchedSections, affectedColumns, changedTiles, biomeChanges, denseSections;
     private final int sectionMask, lightDirtySectionMask, rawBlocks, nativeBlocks;
     private final long estimatedBufferBytes;
+    private final long lightingNanos;
 
     ChunkCommitResult(int changedBlocks, int touchedSections, int affectedColumns, int changedTiles,
             int biomeChanges, int denseSections, int sectionMask, int lightDirtySectionMask,
-            int rawBlocks, int nativeBlocks, long estimatedBufferBytes) {
+            int rawBlocks, int nativeBlocks, long estimatedBufferBytes, long lightingNanos) {
         this.changedBlocks = changedBlocks; this.touchedSections = touchedSections;
         this.affectedColumns = affectedColumns; this.changedTiles = changedTiles;
         this.biomeChanges = biomeChanges; this.denseSections = denseSections;
         this.sectionMask = sectionMask; this.lightDirtySectionMask = lightDirtySectionMask;
         this.rawBlocks = rawBlocks; this.nativeBlocks = nativeBlocks;
         this.estimatedBufferBytes = estimatedBufferBytes;
+        this.lightingNanos = lightingNanos;
     }
     public int getChangedBlocks() { return changedBlocks; }
     public int getTouchedSections() { return touchedSections; }
@@ -29,5 +31,6 @@ public final class ChunkCommitResult {
     public boolean isTileDirty() { return changedTiles != 0; }
     public boolean isBiomeDirty() { return biomeChanges != 0; }
     public long getEstimatedBufferBytes() { return estimatedBufferBytes; }
+    public long getLightingNanos() { return lightingNanos; }
     public boolean suggestsFullChunkPacket() { return changedBlocks >= 2048 || denseSections >= 4; }
 }
