@@ -112,3 +112,15 @@ Changes are listed oldest to newest.
 - Kept exact session/cuboid safety, added a conservative constant-pattern
   resolver, and documented the runtime verification procedure and the reason
   WorldEdit's package-derived API version may be unknown.
+
+## (4c30058 Harden and measure Stage 4 constant fills)
+
+- Added one stable operation summary with separate planning, Enhanced history,
+  commit, skylight finalization, synchronization, wall-time, placement, section,
+  changed-count, chunk, and prepared-memory measurements.
+- Filtered observably unchanged states before history and placement, including
+  coordinate-normalized explicit tile NBT comparison, while retaining dense
+  section representation and conservative raw/native selection.
+- Matched Enhanced's attempted-position block-limit accounting through a narrow
+  fail-closed limiter handshake and documented the synchronous Stage 3 call path,
+  unavailable runtime matrix, validation status, and provisional Stage 5 choice.

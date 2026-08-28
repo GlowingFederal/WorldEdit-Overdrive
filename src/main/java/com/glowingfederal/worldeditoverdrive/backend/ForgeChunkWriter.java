@@ -73,13 +73,15 @@ public final class ForgeChunkWriter {
 
         // generateSkylightMap uses Block#getLightOpacity(world,x,y,z), so removals can lower
         // height and modded contextual opacity remains authoritative. It also refreshes live light state.
+        long lightingStarted = System.nanoTime();
         if (affectedColumns != 0) chunk.generateSkylightMap();
+        long lightingNanos = System.nanoTime() - lightingStarted;
         chunk.setChunkModified();
         chunk.sendUpdates = true;
         return new ChunkCommitResult(change.getChangedBlockCount(), touchedSections, affectedColumns,
                 changedTiles[0], biomeChanges, denseSections, sectionMask,
                 affectedColumns == 0 ? 0 : sectionMask, applicationCounts[0], applicationCounts[1],
-                change.estimatedBytes());
+                change.estimatedBytes(), lightingNanos);
     }
 
     private void commitSection(final WorldServer world, final Chunk chunk, final ExtendedBlockStorage[] storage,
