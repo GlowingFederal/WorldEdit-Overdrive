@@ -217,3 +217,21 @@ Changes are listed oldest to newest.
 - Added a strict standard-PasteBuilder operation adapter and immutable primitive
   clipboard-view foundation, and documented verified source flow and remaining
   Stage 5C compatibility work without claiming active acceleration.
+
+## (35f88ae Establish Stage 5C paste continuation lifecycle)
+
+- Corrected the narrow LaunchWrapper target matcher to recognize the exact
+  dotted or internal name in either `name` or `transformedName`, and verified
+  that Enhanced's standard `PasteBuilder` directly constructs the concrete
+  `com.sk89q.worldedit.function.operation.ForwardExtentCopy` operation.
+- Added explicit not-seen, incompatible, compatible, and installed runtime-shape
+  diagnostics with exact field, interface, superclass, and `resume` descriptor
+  validation while preserving unchanged, fail-open Enhanced bytecode.
+- Added a Java 8 atomic paste-continuation lifecycle and explicit bridge ownership
+  result for future scheduler integration; neither is connected to traversal or
+  mutation, and paste acceleration remains inactive.
+- Documented Enhanced's synchronous returned-operation loop, command feedback
+  boundary, cancellation limitation, and why both early completion and blocking
+  worker waits are unsafe.
+- Added focused class matching, runtime shape, diagnostic transition, lifecycle,
+  illegal-transition, cancellation, failure, and concurrent completion tests.

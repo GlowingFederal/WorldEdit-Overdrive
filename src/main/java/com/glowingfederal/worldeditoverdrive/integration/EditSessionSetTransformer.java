@@ -14,6 +14,7 @@ import org.objectweb.asm.tree.JumpInsnNode;
 import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 /** Redirects Enhanced's composed /set operation before its RegionVisitor executes. */
@@ -28,11 +29,16 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     public EditSessionSetTransformer(){Stage4HookStatus.transformerRegistered=true;}
 
     public byte[] transform(String name,String transformedName,byte[] bytes) {
-        if(PASTE_TARGET.equals(transformedName))return inspectPasteTarget(bytes);
+        if(isPasteTarget(name,transformedName))return inspectPasteTarget(bytes);
         if(COMMAND_TARGET.equals(transformedName))return transformCommand(name,transformedName,bytes);
         if(LEGACY_TARGET.equals(transformedName))return transformLegacy(name,transformedName,bytes);
         return bytes;
     }
+
+    static boolean isPasteTarget(String name,String transformedName) {
+        return PASTE_TARGET.equals(normalize(name))||PASTE_TARGET.equals(normalize(transformedName));
+    }
+    private static String normalize(String name){return name==null?null:name.replace('/','.');}
 
     /**
      * Stage 5C deliberately starts with a bytecode gate, not a speculative
@@ -40,23 +46,35 @@ public final class EditSessionSetTransformer implements IClassTransformer {
      * member used by the adapter is proven against the runtime artifact.
      */
     private byte[] inspectPasteTarget(byte[] bytes) {
-        PasteHookStatus.forwardExtentCopySeen=true;
         try {
             ClassNode node=new ClassNode();new ClassReader(bytes).accept(node,ClassReader.SKIP_CODE|ClassReader.SKIP_DEBUG|ClassReader.SKIP_FRAMES);
-            String[] names={"source","destination","region","from","to","repetitions","sourceMask","sourceFunction","transform","copyEntities","copyBiomes","filterFunction"};
-            for(String required:names){int found=0;for(org.objectweb.asm.tree.FieldNode field:node.fields)if(required.equals(field.name))found++;
-                if(found!=1)return pasteUnavailable(bytes,"runtime field anchor "+required+" count="+found);}
-            int resume=0;for(MethodNode method:node.methods)if("resume".equals(method.name)&&"(Lcom/sk89q/worldedit/function/operation/RunContext;)Lcom/sk89q/worldedit/function/operation/Operation;".equals(method.desc))resume++;
-            if(resume!=1)return pasteUnavailable(bytes,"runtime resume anchor count="+resume);
+            String reason=inspectPasteShape(node);
+            if(reason!=null)return pasteIncompatible(bytes,reason);
             // Shape is known, but suppressing resume without a command continuation would
             // falsely complete /paste. Keep Enhanced bytecode untouched and report INACTIVE.
-            return pasteUnavailable(bytes,"runtime graph verified; asynchronous command continuation not installed");
-        } catch(Throwable incompatible){return pasteUnavailable(bytes,"runtime bytecode inspection failed: "+incompatible.toString());}
+            PasteHookStatus.observedCompatible();
+            OverdriveLog.info("Stage 5C found compatible {}; bytecode intentionally unchanged",PASTE_TARGET);
+            return bytes;
+        } catch(Throwable incompatible){return pasteIncompatible(bytes,"bytecode inspection failed: "+incompatible.toString());}
     }
 
-    private static byte[] pasteUnavailable(byte[] bytes,String reason){
-        PasteHookStatus.pasteHookInstalled=false;PasteHookStatus.hookReason=reason;
-        OverdriveLog.warn("Stage 5C paste acceleration inactive; Enhanced remains untouched ({})",reason);return bytes;
+    static String inspectPasteShape(ClassNode node) {
+        String internal=PASTE_TARGET.replace('.','/');
+        if(!internal.equals(node.name))return "unexpected class name "+node.name;
+        if(!"java/lang/Object".equals(node.superName))return "unexpected superclass "+node.superName;
+        if(node.interfaces.size()!=1||!"com/sk89q/worldedit/function/operation/Operation".equals(node.interfaces.get(0)))return "unexpected interfaces "+node.interfaces;
+        String[][] fields={{"source","Lcom/sk89q/worldedit/extent/Extent;"},{"destination","Lcom/sk89q/worldedit/extent/Extent;"},{"region","Lcom/sk89q/worldedit/regions/Region;"},{"from","Lcom/sk89q/worldedit/Vector;"},{"to","Lcom/sk89q/worldedit/Vector;"},{"repetitions","I"},{"sourceMask","Lcom/sk89q/worldedit/function/mask/Mask;"},{"sourceFunction","Lcom/sk89q/worldedit/function/RegionFunction;"},{"transform","Lcom/sk89q/worldedit/math/transform/Transform;"},{"copyEntities","Z"},{"copyBiomes","Z"},{"filterFunction","Lcom/sk89q/worldedit/function/RegionFunction;"}};
+        for(String[] required:fields){int named=0,exact=0;for(FieldNode field:node.fields)if(required[0].equals(field.name)){named++;if(required[1].equals(field.desc))exact++;}
+            if(named==0)return "missing field "+required[0];if(named!=1)return "field "+required[0]+" count="+named;if(exact!=1)return "wrong descriptor for field "+required[0];}
+        String desc="(Lcom/sk89q/worldedit/function/operation/RunContext;)Lcom/sk89q/worldedit/function/operation/Operation;";
+        int named=0,exact=0;for(MethodNode method:node.methods)if("resume".equals(method.name)){named++;if(desc.equals(method.desc)&&method.access==Opcodes.ACC_PUBLIC)exact++;}
+        if(named!=1||exact!=1)return "wrong resume(RunContext):Operation descriptor/access";
+        return null;
+    }
+
+    private static byte[] pasteIncompatible(byte[] bytes,String reason){
+        PasteHookStatus.observedIncompatible(reason);
+        OverdriveLog.warn("Stage 5C paste acceleration inactive; Enhanced remains untouched ({})",PasteHookStatus.hookReason);return bytes;
     }
 
     private byte[] transformLegacy(String name,String transformedName,byte[] bytes) {
