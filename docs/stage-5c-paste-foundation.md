@@ -306,3 +306,71 @@ specific fallback reason appears, deferred vanilla succeeds, and undo works.
 Transformed coordinates/state, tile commits, and entity planning/history remain
 future Stage 5C expansion points. No in-game result is claimed by this
 source-only environment; the production-jar procedure above is mandatory.
+
+## Deferred EditSession finalization correction
+
+The pinned Enhanced 6.3.0 lifecycle is materially different from modern
+WorldEdit. `Operations.completeLegacy` only resumes an operation to completion;
+it does not flush an `EditSession`. Command-created sessions are always queued
+(`isQueueEnabled()` returns true and `enableQueue()` is a compatibility no-op).
+`CommandManager` normally owns the terminal boundary in its `finally` block:
+it captures queue/chunk state, calls `EditSession.flushQueue()`, flushes the
+block bag, and calls `LocalSession.remember(editSession)`. Because Overdrive
+returns from the intercepted call before deferred mutation, that normal boundary
+runs against an empty queue.
+
+Enhanced's `LocalSession.remember(EditSession)` is not a substitute for placing
+the flush at the mutation boundary. Its three-argument implementation does call
+`flushQueue()` defensively, but only after the command framework has already
+performed its original empty completion point. `flushQueue()` completes the
+session's reorder commit operation, resets the edit limit, drains/dequeues the
+FAWE queue, and closes the current history stage. It does not mark the
+`EditSession` unusable; Enhanced itself describes remember's flush as a
+defensive repeat, and `disableQueue()` is merely a conditional `flushQueue()`
+(with queueing permanently reported enabled), not a distinct terminal mode.
+
+The corrected deferred-vanilla order is therefore `completeLegacy(original) ->
+destination.flushQueue() -> LocalSession.remember(destination) -> selection and
+success feedback`. This explains the live entity-only symptom: entity creation
+was not waiting in the block queue, while copied blocks were. The original
+operation is still executed exactly once, and the original retained
+`EditSession` is still remembered exactly once by the deferred owner.
+
+Accelerated placement drains after every bounded batch rather than accumulating
+the entire plan for one terminal flush. Enhanced exposes no incremental
+`EditSession.flushQueue` budget, so each batch is capped at 256 submissions and
+also stops submissions at the five-millisecond deadline before flushing. A
+single queue drain may exceed five milliseconds, but its input is bounded; its
+actual duration is included in `lastPasteCommitMillis` instead of being hidden
+outside the measurement. `pasteSubmittedBlocks` counts calls submitted to the
+retained session, while `pasteCommittedBlocks` advances only
+for changed blocks after that batch's flush succeeds. Flush failure leaves the
+owner failed and never increments `pasteAccelerated`. The final successful
+order is last submission, last batch flush, history remember, feedback,
+terminal lifecycle completion, and `pasteAccelerated` increment.
+
+The capability audit remains conservative. Identity block-only
+`BlockArrayClipboard` pastes and their standard existing-block (`//paste -a`)
+mask accelerate. Transforms remain deferred because both transformed
+coordinates and legacy metadata must be captured exactly; tiles remain deferred
+even though capture already has a sparse NBT table; entities remain deferred
+because live entities must become immutable snapshots and native entity history
+must be proven. These are semantic capability decisions inside the existing
+accelerated/deferred/direct hierarchy, not command-name special cases.
+
+### Required live regression procedure
+
+1. For a block-only clipboard, run `//copy`, `//paste`, and `/overdrive status`.
+   Visually require blocks, `pasteAccelerated > 0`,
+   `pasteDeferredFailed=0`, and flushed submitted/committed diagnostics. Run
+   `//undo` (and `//redo`) and require complete removal/restoration.
+2. Copy blocks plus ocelots and paste. Require the entity fallback reason,
+   visually require both blocks and entities exactly once, then `//undo` (and
+   `//redo`) to verify native history.
+3. Copy block-only content with air gaps and run `//paste -a`. Require
+   acceleration, visible non-air placement, preservation below source air, and
+   successful undo.
+
+This repository does not contain a running Enhanced server, so these are the
+mandatory production-server checks; source inspection alone is not represented
+as a live pass.

@@ -40,7 +40,7 @@ public final class DeferredPasteManager {
     private static final class Plan {final int[] x,y,z,state;Plan(int[] x,int[] y,int[] z,int[] state){this.x=x;this.y=y;this.z=z;this.state=state;}}
     private static final class Owner {
         final ForwardExtentCopy original;final PasteOperationAdapter adapter;final Player player;final LocalSession session;final ClipboardHolder holder;final boolean select;
-        final PasteContinuationOperation lifecycle=new PasteContinuationOperation();volatile Plan plan;volatile Throwable planningFailure;boolean vanilla,mutation;int cursor;long reserved,commitStarted;
+        final PasteContinuationOperation lifecycle=new PasteContinuationOperation();volatile Plan plan;volatile Throwable planningFailure;boolean vanilla,mutation;int cursor;long reserved,commitNanos;
         Owner(ForwardExtentCopy original,PasteOperationAdapter adapter,Player player,LocalSession session,ClipboardHolder holder,boolean select)throws Exception{
             this.original=original;this.adapter=adapter;this.player=player;this.session=session;this.holder=holder;this.select=select;
             PasteOperationAdapter.Eligibility eligible=adapter.accelerationEligibility();if(eligible.kind!=PasteOperationAdapter.Eligibility.Kind.ACCELERATE){defer(eligible.reason);return;}
@@ -53,12 +53,19 @@ public final class DeferredPasteManager {
         }
         void defer(String reason){vanilla=true;PasteHookStatus.pasteAccelerationFallbacks.incrementAndGet();PasteHookStatus.lastPasteAccelerationFallbackReason=reason;PasteHookStatus.lastPasteDeferredReason="deferred vanilla: "+reason;}
         boolean tick()throws Exception{
-            if(vanilla){Operations.completeLegacy(original);finish();return true;}
+            if(vanilla){Operations.completeLegacy(original);adapter.destination.flushQueue();finish();return true;}
             if(planningFailure!=null){if(!mutation){defer("worker planning failed before mutation: "+planningFailure);return false;}throw new Exception("accelerated planning failed",planningFailure);}
-            Plan ready=plan;if(ready==null)return false;if(lifecycle.state()==PasteContinuationOperation.State.RUNNING){lifecycle.committing();PasteHookStatus.pasteCommitActive.incrementAndGet();commitStarted=System.nanoTime();}
-            long deadline=System.nanoTime()+COMMIT_NANOS;MutableBlockVector position=new MutableBlockVector();
-            while(cursor<ready.state.length&&System.nanoTime()<deadline){int packed=ready.state[cursor];position.setComponents(ready.x[cursor],ready.y[cursor],ready.z[cursor]);adapter.destination.setBlock(position,new BaseBlock(packed>>>4,packed&15));mutation=true;cursor++;PasteHookStatus.pasteCommittedBlocks.incrementAndGet();}
-            if(cursor<ready.state.length)return false;PasteHookStatus.lastPasteCommitMillis.set(ms(commitStarted));PasteHookStatus.pasteCommitActive.decrementAndGet();lifecycle.complete();PasteHookStatus.pasteAccelerated.incrementAndGet();finish();return true;
+            Plan ready=plan;if(ready==null)return false;if(lifecycle.state()==PasteContinuationOperation.State.RUNNING){lifecycle.committing();PasteHookStatus.pasteCommitActive.incrementAndGet();}
+            long tickStarted=System.nanoTime(),deadline=tickStarted+COMMIT_NANOS;MutableBlockVector position=new MutableBlockVector();int submitted=0,changed=0;
+            // flushQueue has no incremental/time-budget overload at EditSession level. Bound the
+            // queue which it must drain as well as the submission loop, and include that drain in
+            // the measured commit time. A flushed batch, not setBlock(), is a visible commit.
+            while(cursor<ready.state.length&&submitted<256&&System.nanoTime()<deadline){int packed=ready.state[cursor];position.setComponents(ready.x[cursor],ready.y[cursor],ready.z[cursor]);if(adapter.destination.setBlock(position,new BaseBlock(packed>>>4,packed&15)))changed++;mutation=true;cursor++;submitted++;}
+            if(submitted!=0){PasteHookStatus.pasteSubmittedBlocks.addAndGet(submitted);adapter.destination.flushQueue();PasteHookStatus.pasteCommittedBlocks.addAndGet(changed);}
+            commitNanos+=System.nanoTime()-tickStarted;PasteHookStatus.lastPasteCommitMillis.set(commitNanos/1000000L);
+            if(cursor<ready.state.length)return false;
+            // The last batch is world-applied before history and success become observable.
+            finish();PasteHookStatus.pasteCommitActive.decrementAndGet();lifecycle.complete();PasteHookStatus.pasteAccelerated.incrementAndGet();return true;
         }
         void finish(){session.remember(adapter.destination);Vector to=adapter.destinationOrigin;if(select){Vector max=to.add(adapter.region.getMaximumPoint().subtract(adapter.region.getMinimumPoint()));RegionSelector selector=new CuboidRegionSelector(player.getWorld(),to,max);session.setRegionSelector(player.getWorld(),selector);selector.learnChanges();selector.explainRegionAdjust(player,session);}player.print("The clipboard has been pasted at "+to);}
         void release(){if(reserved!=0){RETAINED.addAndGet(-reserved);reserved=0;}}
