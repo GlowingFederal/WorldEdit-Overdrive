@@ -110,6 +110,24 @@ public final class PreparedChunkChange {
     }
     public int getBiome(int localX, int localZ) { return biomes == null ? -1 : biomes[localZ << 4 | localX]; }
 
+    /** Vanilla 1.7.10 S22 coordinate encoding, in deterministic section/index order. */
+    public short[] changedPositions() {
+        final short[] positions = new short[changedBlocks];
+        final int[] cursor = new int[1];
+        for (int sectionY = 0; sectionY < sections.length; sectionY++) {
+            SectionChange section = sections[sectionY];
+            if (section == null) continue;
+            final int baseY = sectionY << 4;
+            section.forEach(new SectionChange.Visitor() {
+                @Override public void visit(int index, int packedState) {
+                    positions[cursor[0]++] = (short) (SectionChange.localX(index) << 12
+                            | SectionChange.localZ(index) << 8 | baseY | SectionChange.localY(index));
+                }
+            });
+        }
+        return positions;
+    }
+
     public long estimatedBytes() {
         long bytes = 160 + columns.length * 8L + (biomes == null ? 0 : biomes.length * 4L);
         for (SectionChange section : sections) if (section != null) bytes += section.estimatedBytes();

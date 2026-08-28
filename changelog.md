@@ -83,3 +83,15 @@ Changes are listed oldest to newest.
   commit results with light-dirty masks, raw/native counts, and tile/biome flags.
 - Documented the subsystem KEEP/MODIFY/DEFER decisions, retained correctness-first
   skylight and tile behavior, and recorded modern designs rejected for 1.7.10.
+
+## (bb61f2e Implement Stage 3 bounded execution coordinator)
+
+- Added explicit operation lifecycle, statistics, cancellation, failure, and
+  completion semantics around operation-owned Stage 2 chunk buffers.
+- Added bounded named preparation workers, global/per-operation byte
+  backpressure, isolated oversize handling, and fair tick-budgeted commits.
+- Added captured-server-thread Forge tick integration and watcher-targeted 1.7.10
+  sparse, dense, biome, and tile synchronization.
+- Documented the concrete modern/legacy/Enhanced comparison, shutdown behavior,
+  diagnostic API, deferred work, and the deliberate absence of WorldEdit session
+  or command integration.
