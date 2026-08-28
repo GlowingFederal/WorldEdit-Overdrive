@@ -349,28 +349,57 @@ owner failed and never increments `pasteAccelerated`. The final successful
 order is last submission, last batch flush, history remember, feedback,
 terminal lifecycle completion, and `pasteAccelerated` increment.
 
-The capability audit remains conservative. Identity block-only
-`BlockArrayClipboard` pastes and their standard existing-block (`//paste -a`)
-mask accelerate. Transforms remain deferred because both transformed
-coordinates and legacy metadata must be captured exactly; tiles remain deferred
-even though capture already has a sparse NBT table; entities remain deferred
-because live entities must become immutable snapshots and native entity history
-must be proven. These are semantic capability decisions inside the existing
-accelerated/deferred/direct hierarchy, not command-name special cases.
+## Full standard PasteBuilder semantic acceleration
 
-### Required live regression procedure
+The accelerated owner now covers the complete verified Enhanced 6.3.0 standard
+paste graph. The capability matrix is:
 
-1. For a block-only clipboard, run `//copy`, `//paste`, and `/overdrive status`.
-   Visually require blocks, `pasteAccelerated > 0`,
-   `pasteDeferredFailed=0`, and flushed submitted/committed diagnostics. Run
-   `//undo` (and `//redo`) and require complete removal/restoration.
-2. Copy blocks plus ocelots and paste. Require the entity fallback reason,
-   visually require both blocks and entities exactly once, then `//undo` (and
-   `//redo`) to verify native history.
-3. Copy block-only content with air gaps and run `//paste -a`. Require
-   acceleration, visible non-air placement, preservation below source air, and
-   successful undo.
+| PasteBuilder semantic | Accelerated implementation |
+| --- | --- |
+| blocks, air and `-a` | Full-width legacy IDs/data; only the standard clipboard `ExistingBlockMask` omits source air |
+| source/destination origin | Enhanced's `transform.apply(source - from) + to` mapping |
+| rotations and flips | coordinates use the shared transform; blocks are read synchronously through the builder's own `BlockTransformExtent` |
+| directional metadata | Enhanced's registry-backed `BlockTransformExtent` state transform, including modded registry states, is authoritative |
+| tile NBT | sparse `BaseBlock` payloads retain the complete transformed tag and are passed to `EditSession.setBlock` |
+| entities | immutable `BaseEntity`, position and direction snapshots reproduce `ExtentEntityCopy`, including its hanging/rotation NBT transform |
+| history | blocks, tiles and entities go through the retained native `EditSession`, which is flushed and remembered once |
+| selection | the min/max of every transformed source coordinate, independent of `-a`, becomes the pasted cuboid |
+| feedback | Enhanced's paste line is emitted once, after all commit phases and history retention |
+| biomes | absent from this pinned standard graph and therefore not synthesized |
 
-This repository does not contain a running Enhanced server, so these are the
-mandatory production-server checks; source inspection alone is not represented
-as a live pass.
+WorldEdit-specific block and entity-state transformation occurs synchronously
+before worker publication. This is deliberately safer than assuming the
+mutable transform extent, registry caches, clipboard holder, or JNBT maps are
+thread-safe. Workers see only primitive transformed-relative coordinates,
+full-width IDs/data, sparse copied block payloads, and already detached entity
+plans. In particular, metadata is no longer packed into four bits. Generic
+NBT-bearing and non-plain `BaseBlock` values use a sparse auxiliary copy rather
+than losing subclass/NBT semantics; ordinary blocks retain primitive storage.
+Passing the complete `BaseBlock` to `EditSession.setBlock` delegates tile
+coordinate handling and unknown/modded NBT to Enhanced's native placement path.
+
+Commit ordering is bounded block/tile batches (at most 256 submissions and a
+five-millisecond submission deadline), a queue flush for each visible batch,
+then bounded entity creation (at most 64 and within the same deadline), a final
+flush, native remember, selection, and feedback. Entity creation uses
+`EditSession.createEntity`, retaining Enhanced entity history for undo/redo.
+An operation is successful only after all these phases finish. Once any
+accelerated mutation occurs, the original operation is never replayed.
+
+Admission conservatively accounts for five primitive source arrays, four plan
+arrays, sparse block/NBT payloads, entity state/plans, and fixed overhead. The
+limits remain 64 MiB per operation and 128 MiB globally. Legitimate deferred
+vanilla cases are now only custom operation/source/destination graphs, custom
+masks/functions, source mutation or entity removal, repetitions/already-started
+traversal, non-`BlockArrayClipboard` sources, memory rejection, and safe
+pre-mutation preparation/planning failure. Tiles, entities, transforms,
+metadata, and their combination with `-a` are not semantic fallback reasons.
+
+Runtime status exposes prepared/committed tile and entity counts, transformed
+block count, transform class, and ignore-air state alongside block batching and
+phase timing. Live acceptance should use one clipboard containing directional
+blocks, air holes, a chest/sign, a modded NBT tile when available, and an entity.
+Run ordinary paste, `//undo`/`//redo`, `//rotate 90` paste, a flipped paste, and
+`//paste -a`; inspect `/overdrive status` after each. This source environment
+cannot launch the modded Forge server, so visible content, transformed entity
+orientation, inventory/NBT survival, and live undo remain runtime checks.

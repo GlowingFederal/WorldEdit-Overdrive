@@ -317,3 +317,27 @@ Changes are listed oldest to newest.
 - Documented the exact Enhanced command/session lifecycle, the reason entities
   were visible while blocks were not, undo/redo ordering, the mandatory live
   regression matrix, and the still-deferred transform/tile/entity capabilities.
+
+## (a7744b8 Accelerate full standard Enhanced paste semantics)
+
+- Extended the strict Stage 5C accelerator across the complete verified
+  Enhanced 6.3.0 standard PasteBuilder graph, so ordinary transforms, tile NBT,
+  clipboard entities, metadata-sensitive blocks, air writes, and `//paste -a`
+  combinations no longer select semantic fallback.
+- Snapshotted transformed coordinates and Enhanced-produced block states on the
+  server thread, retained full-width legacy metadata plus sparse generic
+  `BaseBlock`/NBT payloads, and applied tiles through native
+  `EditSession.setBlock` semantics without direct tile construction.
+- Added detached entity state/location/direction plans matching
+  `ExtentEntityCopy`, including transformed hanging and rotation NBT, followed
+  by bounded server-thread `EditSession.createEntity` commits after block/tile
+  queue flushes.
+- Preserved native history, final flushing, exact once-only feedback, transformed
+  selection bounds, source-air filtering semantics, and the irrevocable
+  post-mutation failure boundary while expanding conservative memory admission.
+- Added tile/entity/transform/ignore-air runtime diagnostics and documented a
+  feature-rich live verification procedure covering paste, undo/redo, rotation,
+  reflection, `//paste -a`, vanilla tiles/entities, and generic modded NBT.
+- Retained deferred vanilla only for custom or already-started operation graphs,
+  source mutation/removal, unsupported masks/functions or clipboard types,
+  resource rejection, and safe preparation/planning failure before mutation.

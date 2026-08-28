@@ -6,7 +6,6 @@ import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.extent.AbstractDelegateExtent;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
 import com.sk89q.worldedit.extent.clipboard.BlockArrayClipboard;
-import com.sk89q.worldedit.math.transform.Identity;
 import com.sk89q.worldedit.extent.transform.BlockTransformExtent;
 import com.sk89q.worldedit.function.mask.AbstractExtentMask;
 import com.sk89q.worldedit.function.mask.ExistingBlockMask;
@@ -21,11 +20,12 @@ import java.lang.reflect.Field;
 public final class PasteOperationAdapter {
     public final Clipboard clipboard; public final Region region; public final Vector sourceOrigin,destinationOrigin;
     public final Transform transform; public final EditSession destination; public final boolean ignoreAir,copyEntities,copyBiomes;
+    public final BlockTransformExtent transformedSource;
     public final int repetitions;
     private PasteOperationAdapter(Clipboard clipboard,Region region,Vector sourceOrigin,Vector destinationOrigin,
-            Transform transform,EditSession destination,boolean ignoreAir,boolean copyEntities,boolean copyBiomes,int repetitions) {
+            Transform transform,BlockTransformExtent transformedSource,EditSession destination,boolean ignoreAir,boolean copyEntities,boolean copyBiomes,int repetitions) {
         this.clipboard=clipboard;this.region=region;this.sourceOrigin=sourceOrigin;this.destinationOrigin=destinationOrigin;
-        this.transform=transform;this.destination=destination;this.ignoreAir=ignoreAir;this.copyEntities=copyEntities;
+        this.transform=transform;this.transformedSource=transformedSource;this.destination=destination;this.ignoreAir=ignoreAir;this.copyEntities=copyEntities;
         this.copyBiomes=copyBiomes;this.repetitions=repetitions;
     }
     public static Result recognize(ForwardExtentCopy copy) {
@@ -63,14 +63,12 @@ public final class PasteOperationAdapter {
             if(repetitions!=1)return graph.no("unsupported repetitions: standard PasteBuilder starts at 1, found "+repetitions);
             // Enhanced 6.3.0 has no entity/biome flags: resume() unconditionally queues
             // ExtentEntityCopy, while it never constructs a biome visitor.
-            return Result.yes(new PasteOperationAdapter(clipboard,region,from,to,transform,
+            return Result.yes(new PasteOperationAdapter(clipboard,region,from,to,transform,(BlockTransformExtent)source,
                     (EditSession)destination,ignoreAir,true,false,repetitions),graph.describe(null));
         } catch(Throwable incompatible) { return graph.no("runtime paste graph shape unavailable: "+incompatible.getClass().getName()+": "+incompatible.getMessage()); }
     }
     public Eligibility accelerationEligibility(){
         if(clipboard.getClass()!=BlockArrayClipboard.class)return Eligibility.defer("clipboard is not concrete BlockArrayClipboard");
-        if(!(transform instanceof Identity))return Eligibility.defer("transformed pastes use deferred vanilla traversal");
-        if(copyEntities&&!clipboard.getEntities().isEmpty())return Eligibility.defer("clipboard entities not yet supported by accelerated paste");
         return Eligibility.accelerate();
     }
     public static final class Eligibility {public enum Kind{ACCELERATE,DEFER_VANILLA,VANILLA_FALLBACK} public final Kind kind;public final String reason;
