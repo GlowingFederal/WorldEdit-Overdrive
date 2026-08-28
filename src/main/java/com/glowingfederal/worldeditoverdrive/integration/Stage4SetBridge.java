@@ -15,6 +15,9 @@ import com.sk89q.worldedit.Vector;
 import com.sk89q.worldedit.blocks.BaseBlock;
 import com.sk89q.worldedit.forge.ForgeWorld;
 import com.sk89q.worldedit.history.change.BlockChange;
+import com.sk89q.worldedit.function.block.BlockReplace;
+import com.sk89q.worldedit.function.operation.Operation;
+import com.sk89q.worldedit.function.visitor.RegionVisitor;
 import com.sk89q.worldedit.patterns.Pattern;
 import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.regions.Region;
@@ -30,19 +33,46 @@ public final class Stage4SetBridge {
     private static volatile boolean runtimeTypesLogged;
     private Stage4SetBridge() { }
 
+    /** Entry used by Enhanced's composed /set command (Apply -> RegionVisitor -> BlockReplace). */
+    public static Integer trySetOperation(EditSession session, Region region, Operation operation)
+            throws MaxChangedBlocksException {
+        Stage4HookStatus.bridgeInvocations.incrementAndGet();
+        OverdriveLog.info("WorldEditOverdrive //set bridge invoked");
+        if (!(operation instanceof RegionVisitor)) return null;
+        try {
+            Object function=readField(operation,"function");
+            if (!(function instanceof BlockReplace) || readField(function,"extent") != session) return null;
+            Object candidate=readField(function,"pattern");
+            BaseBlock block=resolveComposedConstant(candidate);
+            if(block==null)return null;
+            Integer result=trySetBlock(session,region,block);
+            if(result!=null)writeField(operation,"affected",result);
+            return result;
+        } catch (ReflectiveOperationException incompatible) {
+            return fallback("composed /set operation shape unavailable: "+incompatible.toString());
+        }
+    }
+
     public static Integer trySet(EditSession session, Region region, Pattern pattern)
             throws MaxChangedBlocksException {
         Stage4HookStatus.bridgeInvocations.incrementAndGet();
+        OverdriveLog.info("WorldEditOverdrive legacy setBlocks bridge invoked");
         if (session == null || region == null || pattern == null) return fallback("null argument: session="+session+", region="+region+", pattern="+pattern);
+        BaseBlock block=ConstantPatternResolver.resolve(pattern);
+        if (block == null) return fallback("pattern="+type(pattern)+", expected SingleBlockPattern");
+        return trySetBlock(session,region,block);
+    }
+
+    private static Integer trySetBlock(EditSession session,Region region,BaseBlock block)
+            throws MaxChangedBlocksException {
+        if(session==null||region==null||block==null)return fallback("null composed /set argument");
         if (!runtimeTypesLogged) {
             runtimeTypesLogged=true;
-            OverdriveLog.info("//set runtime: session={}, region={}, pattern={}, world={}, queueEnabled={}, mask={}",
-                    type(session),type(region),type(pattern),type(session.getWorld()),session.isQueueEnabled(),value(session.getMask()));
+            OverdriveLog.info("//set runtime: session={}, region={}, block={}, world={}, queueEnabled={}, mask={}",
+                    type(session),type(region),type(block),type(session.getWorld()),session.isQueueEnabled(),value(session.getMask()));
         }
         CuboidBounds bounds=CuboidBounds.resolve(region);
         if (bounds == null) return fallback("region="+type(region)+", complete cuboid bounds not proven");
-        BaseBlock block=ConstantPatternResolver.resolve(pattern);
-        if (block == null) return fallback("pattern="+type(pattern)+", expected SingleBlockPattern");
         EditSessionCompatibilityInspector.Result compatibility=EditSessionCompatibilityInspector.inspect(session);
         if(compatibility.classification!=EditSessionCompatibilityInspector.Classification.SAFE)return fallback(compatibility.reason);
         if (!(session.getWorld() instanceof ForgeWorld)) return fallback("world="+type(session.getWorld())+", expected ForgeWorld");
@@ -104,6 +134,22 @@ public final class Stage4SetBridge {
         OverdriveLog.info(summary.format());
         Stage4HookStatus.acceleratedInvocations.incrementAndGet();
         return affected;
+    }
+
+    private static Object readField(Object owner,String name) throws ReflectiveOperationException {
+        Field field=owner.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(owner);
+    }
+
+    private static BaseBlock resolveComposedConstant(Object candidate) throws ReflectiveOperationException {
+        if(candidate instanceof BaseBlock)return (BaseBlock)candidate;
+        if(candidate instanceof Pattern)return ConstantPatternResolver.resolve((Pattern)candidate);
+        if(candidate!=null&&"com.sk89q.worldedit.function.pattern.BlockPattern".equals(candidate.getClass().getName()))
+            return (BaseBlock)candidate.getClass().getMethod("getBlock").invoke(candidate);
+        return null;
+    }
+
+    private static void writeField(Object owner,String name,Object value) throws ReflectiveOperationException {
+        Field field=owner.getClass().getDeclaredField(name); field.setAccessible(true); field.set(owner,value);
     }
 
     /** Reserve the same attempted-position budget consumed by Enhanced's limiter. */

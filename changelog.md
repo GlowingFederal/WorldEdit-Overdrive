@@ -136,3 +136,14 @@ Changes are listed oldest to newest.
   unknown wrappers, and custom behavior on Enhanced.
 - Documented timing semantics, artifact diagnosis, the dedicated runtime matrix,
   fallback guarantees, remaining restrictions, and timing-led optimization.
+
+## (af1a180 Correct Stage 4 composed set interception)
+
+- Traced Enhanced 6.3.0 `/set` registration through `SelectionCommand`,
+  `ApplyCommand`, `Apply`, `RegionVisitor`, and `BlockReplace`, including the
+  exact owner of the `Operation completed (...)` response.
+- Moved the active Stage 4 redirect to the composed command immediately before
+  traversal while retaining the old `EditSession#setBlocks` hook as a separately
+  reported legacy diagnostic.
+- Preserved nullable, pre-mutation fallback and existing command feedback, and
+  made ACTIVE status depend only on installation of the real command-path hook.
