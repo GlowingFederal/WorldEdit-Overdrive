@@ -40,3 +40,7 @@ explicit `com/glowingfederal/worldeditoverdrive/**` include, so only owned addon
 and backend classes are compiled. The `core`, `bukkit`, `forge1710`, `favs`, and
 `ReferenceSRC` directories—including the old `com.boydti.fawe.forge` sources—are
 retained solely as legacy migration reference and are not compiled or packaged.
+
+## Stage 4 integration
+
+The first constant-cuboid `//set` integration, its conservative eligibility/fallback contract, history model, and outstanding runtime validation are documented in [`docs/stage-4-constant-fill.md`](docs/stage-4-constant-fill.md).
