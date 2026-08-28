@@ -48,6 +48,30 @@ public final class PreparedChunkChange {
             return this;
         }
 
+        /** Constant rectangular span; complete sections take the dense fast path. */
+        public Builder fill(int minX, int minY, int minZ, int maxX, int maxY, int maxZ,
+                int blockId, int metadata) {
+            open();
+            checkPosition(minX, minY, minZ); checkPosition(maxX, maxY, maxZ);
+            if (minX > maxX || minY > maxY || minZ > maxZ) throw new IllegalArgumentException("inverted fill");
+            BlockChange state = new BlockChange(blockId, metadata);
+            for (int sectionY = minY >>> 4; sectionY <= maxY >>> 4; sectionY++) {
+                int lowY = Math.max(minY, sectionY << 4), highY = Math.min(maxY, sectionY << 4 | 15);
+                if (minX == 0 && maxX == 15 && minZ == 0 && maxZ == 15
+                        && lowY == (sectionY << 4) && highY == (sectionY << 4 | 15)) {
+                    SectionChange section = sections[sectionY];
+                    int before = section == null ? 0 : section.getChangedCount();
+                    if (section == null) sections[sectionY] = section = new SectionChange();
+                    section.fill(state); changedBlocks += SectionChange.SIZE - before;
+                    for (int z = 0; z < 16; z++) for (int x = 0; x < 16; x++) markColumn(x, z);
+                } else {
+                    for (int y = lowY; y <= highY; y++) for (int z = minZ; z <= maxZ; z++)
+                        for (int x = minX; x <= maxX; x++) setBlock(x, y, z, blockId, metadata);
+                }
+            }
+            return this;
+        }
+
         public Builder setTileNbt(int localX, int y, int localZ, NBTTagCompound nbt) {
             open();
             checkPosition(localX, y, localZ);

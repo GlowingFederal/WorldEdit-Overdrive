@@ -95,3 +95,9 @@ Changes are listed oldest to newest.
 - Documented the concrete modern/legacy/Enhanced comparison, shutdown behavior,
   diagnostic API, deferred work, and the deliberate absence of WorldEdit session
   or command integration.
+
+## (3687c33 Begin Stage 4 constant fill integration)
+
+- Added a descriptor-checked, single-method Enhanced `EditSession#setBlocks` redirect with conservative pre-mutation eligibility and transparent native fallback.
+- Added world-read-free cuboid/chunk/section planning, direct dense full-section population, constant legacy state and tile-NBT translation, server-thread Enhanced history capture, and watcher-owned synchronization.
+- Documented the exact Enhanced execution/extent path, modern and legacy FAWE comparison, completion and history model, compatibility compromises, unclaimed runtime matrix, benchmark plan, and blockers before Stage 5.

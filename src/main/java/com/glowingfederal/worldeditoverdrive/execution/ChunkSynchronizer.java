@@ -14,8 +14,13 @@ import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
 
 /** Chunk-granular 1.7.10 synchronization; never broadcasts outside tracking players. */
-final class ChunkSynchronizer {
-    enum Strategy { NONE, MULTI_BLOCK, CHUNK }
+public final class ChunkSynchronizer {
+    public enum Strategy { NONE, MULTI_BLOCK, CHUNK }
+
+    public Strategy synchronize(WorldServer world, Chunk chunk, PreparedChunkChange change,
+            ChunkCommitResult result, int sparseThreshold) {
+        return synchronize(world, chunk, change, result, sparseThreshold, null);
+    }
 
     Strategy synchronize(WorldServer world, Chunk chunk, PreparedChunkChange change,
             ChunkCommitResult result, int sparseThreshold, OverdriveOperation operation) {
@@ -41,7 +46,7 @@ final class ChunkSynchronizer {
                     if (player instanceof EntityPlayerMP && manager.isPlayerWatchingChunk(
                             (EntityPlayerMP) player, change.getChunkX(), change.getChunkZ())) {
                         ((EntityPlayerMP) player).playerNetServerHandler.sendPacket(live.getDescriptionPacket());
-                        operation.tilePackets++;
+                        if (operation != null) operation.tilePackets++;
                     }
                 }
             }

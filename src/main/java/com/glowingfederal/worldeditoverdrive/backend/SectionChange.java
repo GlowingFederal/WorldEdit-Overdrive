@@ -18,6 +18,16 @@ public final class SectionChange {
     private int[] denseStates;
     private int changedCount;
 
+    /** Populate a complete section without sparse growth or 4096 builder calls. */
+    public void fill(BlockChange state) {
+        if (state == null) throw new NullPointerException("state");
+        denseStates = new int[SIZE];
+        Arrays.fill(denseStates, state.packed());
+        sparseIndices = null;
+        sparseStates = null;
+        changedCount = SIZE;
+    }
+
     public void set(int localX, int localY, int localZ, BlockChange state) {
         checkLocal(localX, localY, localZ);
         int index = index(localX, localY, localZ);
