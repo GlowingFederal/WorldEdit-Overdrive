@@ -20,6 +20,16 @@ archivesBaseName = 'WorldEditOverdrive'
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
+// Keep the active addon boundary explicit while the legacy KAWE sources remain
+// in this repository as porting reference material.
+sourceSets {
+    main {
+        java {
+            include 'com/glowingfederal/worldeditoverdrive/**'
+        }
+    }
+}
+
 repositories {
     // Plain Maven syntax is required by this ForgeGradle/Gradle generation.
     maven { url = 'https://www.cursemaven.com' }
