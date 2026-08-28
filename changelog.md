@@ -317,3 +317,26 @@ Changes are listed oldest to newest.
 - Documented the exact Enhanced command/session lifecycle, the reason entities
   were visible while blocks were not, undo/redo ordering, the mandatory live
   regression matrix, and the still-deferred transform/tile/entity capabilities.
+
+## (5ec4c6c Accelerate complete standard Enhanced pastes)
+
+- Expanded acceleration from identity block-only clips to the complete standard
+  Enhanced 6.3.0 PasteBuilder graph, including rotations/reflections, tiles,
+  entities, ordinary air, and combined `//paste -a` semantics.
+- Prepared transformed coordinates and registry/hook-transformed legacy block
+  states synchronously, retained full-width metadata and sparse complete
+  BaseBlock/NBT payloads, and committed tiles through native EditSession block
+  placement.
+- Captured entities through Enhanced's own ExtentEntityCopy semantics, including
+  transformed position, orientation, hanging-entity coordinates/directions, and
+  complete BaseEntity state, then bounded native entity creation after blocks.
+- Preserved batch flush ordering, actual changed-block accounting, native
+  EditSession block/entity history, single completion feedback, and the pinned
+  command's pasted-selection behavior.
+- Added conservative block/tile/entity/plan memory accounting and semantic
+  runtime diagnostics, while retaining deferred vanilla only for custom graphs,
+  mutation/removal, unsupported masks/state, resource rejection, and safe
+  pre-mutation failures.
+- Documented feature-rich live verification using directional blocks, air gaps,
+  vanilla/modded NBT tiles, and an entity across identity, rotate, flip,
+  ignore-air, undo, and redo operations.
