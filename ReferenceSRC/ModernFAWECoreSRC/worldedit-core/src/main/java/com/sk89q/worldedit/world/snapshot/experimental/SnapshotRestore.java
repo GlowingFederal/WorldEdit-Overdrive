@@ -1,0 +1,262 @@
+/*
+ * WorldEdit, a Minecraft world manipulation toolkit
+ * Copyright (C) sk89q <http://www.sk89q.com>
+ * Copyright (C) WorldEdit team and contributors
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package com.sk89q.worldedit.world.snapshot.experimental;
+
+import com.sk89q.worldedit.EditSession;
+import com.sk89q.worldedit.MaxChangedBlocksException;
+import com.sk89q.worldedit.entity.BaseEntity;
+import com.sk89q.worldedit.math.BlockVector2;
+import com.sk89q.worldedit.math.BlockVector3;
+import com.sk89q.worldedit.regions.CuboidRegion;
+import com.sk89q.worldedit.regions.Region;
+import com.sk89q.worldedit.util.Location;
+import com.sk89q.worldedit.world.DataException;
+import com.sk89q.worldedit.world.chunk.Chunk;
+import com.sk89q.worldedit.world.storage.ChunkStore;
+import com.sk89q.worldedit.world.storage.MissingChunkException;
+import org.enginehub.linbus.tree.LinCompoundTag;
+import org.enginehub.linbus.tree.LinDoubleTag;
+import org.enginehub.linbus.tree.LinFloatTag;
+import org.enginehub.linbus.tree.LinListTag;
+import org.enginehub.linbus.tree.LinTagType;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * A snapshot restore operation.
+ */
+public class SnapshotRestore {
+
+    private final Map<BlockVector2, ArrayList<BlockVector3>> neededChunks = new LinkedHashMap<>();
+    private final Snapshot snapshot;
+    private final EditSession editSession;
+    //FAWE start - biome and entity restore
+    private final boolean restoreBiomes;
+    private final boolean restoreEntities;
+    //FAWE end
+    private ArrayList<BlockVector2> missingChunks;
+    private ArrayList<BlockVector2> errorChunks;
+    private String lastErrorMessage;
+
+    /**
+     * Construct the snapshot restore operation.
+     *
+     * @param snapshot    The {@link Snapshot} to restore from
+     * @param editSession The {@link EditSession} to restore to
+     * @param region      The {@link Region} to restore to
+     */
+    public SnapshotRestore(Snapshot snapshot, EditSession editSession, Region region) {
+        //FAWE start - biome and entity restore
+        this(snapshot, editSession, region, false, false);
+    }
+
+    /**
+     * Construct the snapshot restore operation.
+     *
+     * @param snapshot        The {@link Snapshot} to restore from
+     * @param editSession     The {@link EditSession} to restore to
+     * @param region          The {@link Region} to restore to
+     * @param restoreBiomes   If biomes should be restored
+     * @param restoreEntities If entities should be restored
+     */
+    public SnapshotRestore(
+            Snapshot snapshot,
+            EditSession editSession,
+            Region region,
+            boolean restoreBiomes,
+            boolean restoreEntities
+    ) {
+        this.snapshot = snapshot;
+        this.editSession = editSession;
+        this.restoreBiomes = restoreBiomes;
+        this.restoreEntities = restoreEntities;
+
+        if (region instanceof CuboidRegion) {
+            findNeededCuboidChunks(region);
+        } else {
+            findNeededChunks(region);
+        }
+    }
+    //FAWE end
+
+    /**
+     * Find needed chunks in the axis-aligned bounding box of the region.
+     *
+     * @param region The {@link Region} to iterate
+     */
+    private void findNeededCuboidChunks(Region region) {
+        BlockVector3 min = region.getMinimumPoint();
+        BlockVector3 max = region.getMaximumPoint();
+
+        // First, we need to group points by chunk so that we only need
+        // to keep one chunk in memory at any given moment
+        for (int x = min.x(); x <= max.x(); ++x) {
+            for (int y = min.y(); y <= max.y(); ++y) {
+                for (int z = min.z(); z <= max.z(); ++z) {
+                    BlockVector3 pos = BlockVector3.at(x, y, z);
+                    checkAndAddBlock(pos);
+                }
+            }
+        }
+    }
+
+    /**
+     * Find needed chunks in the region.
+     *
+     * @param region The {@link Region} to iterate
+     */
+    private void findNeededChunks(Region region) {
+        // First, we need to group points by chunk so that we only need
+        // to keep one chunk in memory at any given moment
+        for (BlockVector3 pos : region) {
+            checkAndAddBlock(pos);
+        }
+    }
+
+    private void checkAndAddBlock(BlockVector3 pos) {
+        if (editSession.getMask() != null && !editSession.getMask().test(pos)) {
+            return;
+        }
+
+        BlockVector2 chunkPos = ChunkStore.toChunk(pos);
+
+        // Unidentified chunk
+        if (!neededChunks.containsKey(chunkPos)) {
+            neededChunks.put(chunkPos, new ArrayList<>());
+        }
+
+        neededChunks.get(chunkPos).add(pos);
+    }
+
+    /**
+     * Get the number of chunks that are needed.
+     *
+     * @return a number of chunks
+     */
+    public int getChunksAffected() {
+        return neededChunks.size();
+    }
+
+    /**
+     * Restores to world.
+     *
+     * @throws MaxChangedBlocksException if the max block change limit is exceeded
+     */
+    public void restore() throws MaxChangedBlocksException {
+
+        missingChunks = new ArrayList<>();
+        errorChunks = new ArrayList<>();
+
+        // Now let's start restoring!
+        for (Map.Entry<BlockVector2, ArrayList<BlockVector3>> entry : neededChunks.entrySet()) {
+            BlockVector2 chunkPos = entry.getKey();
+            Chunk chunk;
+
+            try {
+                // This will need to be changed if we start officially supporting 3d snapshots.
+                chunk = snapshot.getChunk(chunkPos.toBlockVector3());
+                // Good, the chunk could be at least loaded
+
+                // Now just copy blocks!
+                for (BlockVector3 pos : entry.getValue()) {
+                    try {
+                        editSession.setBlock(pos, chunk.getBlock(pos));
+                        //FAWE start - biome and entity restore
+                        if (restoreBiomes && (pos.x() & 3) == 0 && (pos.y() & 3) == 0 && (pos.z() & 3) == 0) {
+                            editSession.setBiome(pos, chunk.getBiome(pos));
+                        }
+                        //FAWE end
+                    } catch (DataException e) {
+                        // this is a workaround: just ignore for now
+                    }
+                }
+                //FAWE start - biome and entity restore
+                if (restoreEntities) {
+                    try {
+                        for (BaseEntity entity : chunk.getEntities()) {
+                            LinCompoundTag tag = entity.getNbtReference().getValue();
+                            LinListTag<LinDoubleTag> pos = tag.getListTag("Pos", LinTagType.doubleTag());
+                            LinListTag<LinFloatTag> rotation = tag.getListTag("Rotation", LinTagType.floatTag());
+                            double x = pos.get(0).value();
+                            double y = pos.get(1).value();
+                            double z = pos.get(2).value();
+                            float yRot = rotation.get(0).value();
+                            float xRot = rotation.get(1).value();
+                            Location location = new Location(editSession.getWorld(), x, y, z, yRot, xRot);
+                            editSession.createEntity(location, entity);
+                        }
+                    } catch (DataException e) {
+                        // this is a workaround: just ignore for now
+                    }
+                }
+                //FAWE end
+            } catch (MissingChunkException me) {
+                missingChunks.add(chunkPos);
+            } catch (IOException | DataException me) {
+                errorChunks.add(chunkPos);
+                lastErrorMessage = me.getMessage();
+            }
+        }
+    }
+
+    /**
+     * Get a list of the missing chunks. restore() must have been called
+     * already.
+     *
+     * @return a list of coordinates
+     */
+    public List<BlockVector2> getMissingChunks() {
+        return missingChunks;
+    }
+
+    /**
+     * Get a list of the chunks that could not have been loaded for other
+     * reasons. restore() must have been called already.
+     *
+     * @return a list of coordinates
+     */
+    public List<BlockVector2> getErrorChunks() {
+        return errorChunks;
+    }
+
+    /**
+     * Checks to see where the backup succeeded in any capacity. False will
+     * be returned if no chunk could be successfully loaded.
+     *
+     * @return true if there was total failure
+     */
+    public boolean hadTotalFailure() {
+        return missingChunks.size() + errorChunks.size() == getChunksAffected();
+    }
+
+    /**
+     * Get the last error message.
+     *
+     * @return a message
+     */
+    public String getLastErrorMessage() {
+        return lastErrorMessage;
+    }
+
+}
