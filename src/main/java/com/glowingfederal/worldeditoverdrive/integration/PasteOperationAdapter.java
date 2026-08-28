@@ -5,6 +5,8 @@ import com.sk89q.worldedit.Vector;
 import com.sk89q.worldedit.extent.Extent;
 import com.sk89q.worldedit.extent.AbstractDelegateExtent;
 import com.sk89q.worldedit.extent.clipboard.Clipboard;
+import com.sk89q.worldedit.extent.clipboard.BlockArrayClipboard;
+import com.sk89q.worldedit.math.transform.Identity;
 import com.sk89q.worldedit.extent.transform.BlockTransformExtent;
 import com.sk89q.worldedit.function.mask.AbstractExtentMask;
 import com.sk89q.worldedit.function.mask.ExistingBlockMask;
@@ -65,6 +67,15 @@ public final class PasteOperationAdapter {
                     (EditSession)destination,ignoreAir,true,false,repetitions),graph.describe(null));
         } catch(Throwable incompatible) { return graph.no("runtime paste graph shape unavailable: "+incompatible.getClass().getName()+": "+incompatible.getMessage()); }
     }
+    public Eligibility accelerationEligibility(){
+        if(clipboard.getClass()!=BlockArrayClipboard.class)return Eligibility.defer("clipboard is not concrete BlockArrayClipboard");
+        if(!(transform instanceof Identity))return Eligibility.defer("transformed pastes use deferred vanilla traversal");
+        if(copyEntities&&!clipboard.getEntities().isEmpty())return Eligibility.defer("clipboard entities not yet supported by accelerated paste");
+        return Eligibility.accelerate();
+    }
+    public static final class Eligibility {public enum Kind{ACCELERATE,DEFER_VANILLA,VANILLA_FALLBACK} public final Kind kind;public final String reason;
+        private Eligibility(Kind kind,String reason){this.kind=kind;this.reason=reason;}static Eligibility accelerate(){return new Eligibility(Kind.ACCELERATE,null);}
+        static Eligibility defer(String reason){return new Eligibility(Kind.DEFER_VANILLA,reason);}}
     private static boolean sameStandardRegion(Region actual,Region expected){
         if(actual==null||expected==null||actual.getClass()!=expected.getClass())return false;
         if(!actual.getMinimumPoint().equals(expected.getMinimumPoint())||!actual.getMaximumPoint().equals(expected.getMaximumPoint()))return false;

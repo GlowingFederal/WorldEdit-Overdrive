@@ -284,3 +284,21 @@ Changes are listed oldest to newest.
 - Added bounded `lastPasteGraphDiagnostic` output with runtime classes and an
   exact rejecting predicate, and documented the discovered graph, false prior
   assumption, accepted forms, and live paste/status/undo procedure.
+
+## (85d58e2 Accelerate bounded identity clipboard pastes)
+
+- Added the first actual Stage 5C accelerated execution path for strict,
+  identity-transformed Enhanced 6.3.0 `BlockArrayClipboard` pastes, including
+  source-air filtering support for `//paste -a`.
+- Captured immutable full-width legacy ID/metadata clipboard views on the server
+  thread, rejected entity/tile-bearing clips conservatively, and planned compact
+  primitive destination arrays exclusively on daemon workers.
+- Added pre-allocation per-operation/global retained-memory admission with
+  deterministic release, then bounded native `EditSession.setBlock` commits to
+  the five-millisecond END-tick budget and remembered native history exactly once.
+- Kept the proven deferred vanilla traversal for transformations, custom or
+  unsupported semantics, memory rejection, and safe pre-mutation planner failure;
+  prohibited vanilla replay after accelerated mutation begins.
+- Added acceleration fallback, planning/commit activity, block count, and phase
+  timing diagnostics, and documented the mandatory real `//paste`, status,
+  multi-tick, `//paste -a`, semantic-fallback, and `//undo` verification matrix.
