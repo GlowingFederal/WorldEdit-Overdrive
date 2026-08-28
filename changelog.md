@@ -74,3 +74,12 @@ Changes are listed oldest to newest.
   connecting the backend to WorldEdit commands or `EditSession`.
 - Documented the subsystem-by-subsystem legacy FAWE, supplied modern FAWE,
   WorldEdit Enhanced, and Overdrive design comparison.
+
+## (05c5bc8 Review Stage 2 against modern FAWE core)
+
+- Re-reviewed the completed Forge 1.7.10 chunk backend against concrete modern
+  FAWE core queue, chunk-set, processor, lighting, NBT, and memory implementations.
+- Replaced boxed raw-section tracking with a primitive section mask and extended
+  commit results with light-dirty masks, raw/native counts, and tile/biome flags.
+- Documented the subsystem KEEP/MODIFY/DEFER decisions, retained correctness-first
+  skylight and tile behavior, and recorded modern designs rejected for 1.7.10.
