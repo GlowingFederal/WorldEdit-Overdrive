@@ -161,3 +161,13 @@ Changes are listed oldest to newest.
   explicit diagnostics and accurate ACTIVE/INACTIVE status, and documented the
   runtime descriptors, stack strategy, frame recomputation, and remaining
   validation boundary.
+
+## (88633ae Document generalized operation and paste architecture)
+
+- Recorded Enhanced 6.3.0's exact reorder stages, global ordering rules,
+  clipboard paste traversal, extent-chain semantics, and completion behavior.
+- Compared supplied modern and legacy FAWE queue, paste, history, side-effect,
+  and Forge 1.7.10 concepts without proposing a direct port.
+- Defined the phased hybrid operation plan, per-change raw/native routing,
+  snapshots, bounded history, tiles, entities, lifecycle handling, custom extent
+  compatibility, migration sequence, risks, and differential validation plan.
