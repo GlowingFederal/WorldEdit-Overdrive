@@ -5,6 +5,7 @@ import com.glowingfederal.worldeditoverdrive.execution.OverdriveCoordinator;
 import com.glowingfederal.worldeditoverdrive.integration.OverdriveEditSummary;
 import com.glowingfederal.worldeditoverdrive.integration.OverdriveSummaries;
 import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
+import com.glowingfederal.worldeditoverdrive.integration.PasteHookStatus;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
 import java.util.Arrays;
@@ -35,6 +36,8 @@ public final class OverdriveCommand extends CommandBase {
         send(sender,"legacySetBlocksHookInstalled="+Stage4HookStatus.legacySetBlocksHookInstalled+" activeSetCommandHookInstalled="+Stage4HookStatus.activeSetCommandHookInstalled);
         send(sender,"hookReason="+Stage4HookStatus.hookReason);
         send(sender,"bridge="+Stage4HookStatus.bridgeInvocations.get()+" accelerated="+Stage4HookStatus.acceleratedInvocations.get()+" fallbacks="+Stage4HookStatus.fallbackInvocations.get()+" lastFallback="+Stage4HookStatus.lastFallbackReason);
+        send(sender,"pasteHookInstalled="+PasteHookStatus.pasteHookInstalled+" pasteBridgeInvocations="+PasteHookStatus.pasteBridgeInvocations.get()+" pasteAccelerated="+PasteHookStatus.pasteAccelerated.get()+" pasteFallbacks="+PasteHookStatus.pasteFallbacks.get()+" lastPasteFallbackReason="+PasteHookStatus.lastPasteFallbackReason);
+        send(sender,"pasteHookReason="+PasteHookStatus.hookReason+" forwardExtentCopySeen="+PasteHookStatus.forwardExtentCopySeen);
         send(sender,"coordinator="+(coordinator==null?"stopped":"running")+" workers="+c.preparationWorkers+" globalMemory="+c.maxPreparedBytes+" operationMemory="+c.maxPreparedBytesPerOperation+" commitTick="+OverdriveEditSummary.ms(c.commitBudgetNanos)+"ms");
     }
     private void stats(ICommandSender sender){OverdriveEditSummary s=OverdriveSummaries.latest();if(s==null){send(sender,"No accelerated operation snapshot");return;}
