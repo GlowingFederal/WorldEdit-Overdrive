@@ -207,3 +207,13 @@ Changes are listed oldest to newest.
   accounting.
 - Expanded Stage 5B history tests and documented the native history seam,
   iterator direction, coordinate representation, and normal-operation isolation.
+
+## (b8d5aaf Begin Stage 5C paste compatibility foundation)
+
+- Added independent paste-hook status counters and `/overdrive status` output,
+  without conflating paste attempts with the existing constant-set bridge.
+- Added a fail-open runtime `ForwardExtentCopy` shape gate that leaves Enhanced
+  bytecode untouched until the asynchronous command continuation is safe.
+- Added a strict standard-PasteBuilder operation adapter and immutable primitive
+  clipboard-view foundation, and documented verified source flow and remaining
+  Stage 5C compatibility work without claiming active acceleration.
