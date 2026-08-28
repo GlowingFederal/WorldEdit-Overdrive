@@ -11,6 +11,7 @@ public final class PasteHookStatus {
     public static volatile boolean pasteBytecodeModified;
     public static volatile String hookReason="ForwardExtentCopy not observed";
     public static volatile String lastPasteFallbackReason;
+    public static volatile String lastPasteGraphDiagnostic;
     public static volatile String lastPasteDeferredReason;
     public static final AtomicLong pasteBridgeInvocations=new AtomicLong();
     public static final AtomicLong pasteAccelerated=new AtomicLong();
@@ -24,6 +25,6 @@ public final class PasteHookStatus {
     static void observedCompatible(){if(pasteHookInstalled)return;runtimeShape.set(RuntimeShape.SEEN_COMPATIBLE);hookReason="compatible; ClipboardCommands paste hook not observed";}
     static void observedIncompatible(String reason){runtimeShape.set(RuntimeShape.SEEN_INCOMPATIBLE);pasteHookInstalled=false;hookReason="incompatible runtime shape: "+reason;}
     static void hookInstalled(){runtimeShape.set(RuntimeShape.HOOK_INSTALLED);pasteHookInstalled=true;pasteBytecodeModified=true;hookReason="installed";}
-    static void resetForTests(){runtimeShape.set(RuntimeShape.NOT_SEEN);pasteHookInstalled=false;pasteBytecodeModified=false;hookReason="ForwardExtentCopy not observed";}
+    static void resetForTests(){runtimeShape.set(RuntimeShape.NOT_SEEN);pasteHookInstalled=false;pasteBytecodeModified=false;hookReason="ForwardExtentCopy not observed";lastPasteGraphDiagnostic=null;}
     private PasteHookStatus() { }
 }

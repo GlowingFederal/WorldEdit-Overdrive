@@ -271,3 +271,16 @@ Changes are listed oldest to newest.
 - Updated Stage 5C documentation with the installed interception point,
   ownership order, tick lifecycle, feedback/history boundary, fallback rules,
   status fields, and immediate real-server verification procedure.
+
+## (242bd8d Fix Stage 5C live paste graph adaptation)
+
+- Replaced the invalid clipboard-region identity predicate with narrow semantic
+  validation of the cloned region returned by Enhanced's `BlockArrayClipboard`,
+  allowing the verified ordinary PasteBuilder graph to enter deferred execution.
+- Kept graph ownership strict for source and destination classes, clipboard
+  delegate, origin, transform identity, masks, source mutation, repetitions,
+  and untouched traversal state; ordinary, rotated, and ignore-air PasteBuilder
+  forms remain explicitly distinguished by their transform and mask fields.
+- Added bounded `lastPasteGraphDiagnostic` output with runtime classes and an
+  exact rejecting predicate, and documented the discovered graph, false prior
+  assumption, accepted forms, and live paste/status/undo procedure.

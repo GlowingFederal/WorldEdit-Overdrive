@@ -124,6 +124,35 @@ same transform object. Ignore-air is recovered only from an
 `ExistingBlockMask` bound to that clipboard; the sole other accepted mask is
 the `Masks.alwaysTrue()` singleton.
 
+The first live intercepted paste reached every one of those predicates and
+failed only at the region identity check. That isolated the actual graph as
+`BlockTransformExtent -> BlockArrayClipboard`, with a direct `EditSession`
+destination, null `sourceFunction`, the `Masks.alwaysTrue()` singleton, and an
+identity transform shared by the wrapper and copy. The earlier assumption that
+`copy.region == clipboard.getRegion()` was false: `BlockArrayClipboard`
+deliberately clones its stored region on every `getRegion()` call. PasteBuilder
+therefore passes one clone into `ForwardExtentCopy`, while the adapter observes
+a different clone when it asks the clipboard again.
+
+The adapter now proves that cloned edge semantically and narrowly: both regions
+must have the same concrete class, minimum and maximum points, area, and world
+identity. It still requires the clipboard origin, exact wrapper and destination
+classes, shared transform object, standard initial repetition count of one,
+and untouched traversal state. PasteBuilder always installs
+`BlockTransformExtent`, including for an identity transform; `//rotate 90`
+retains the identical wrapper graph and changes only the shared transform
+implementation/value. There is no identity-only direct-clipboard variant in
+the pinned builder.
+
+Normal paste leaves `sourceFunction` null. `CombinedRegionFunction` is created
+later inside `ForwardExtentCopy.resume()` only when a caller supplied a source
+mutation, so seeing one in the operation field remains nonstandard. Normal
+paste keeps the non-null `Masks.alwaysTrue()` singleton. `//paste -a` changes
+only that field to `ExistingBlockMask -> BlockArrayClipboard`; the mask extent
+must be the very clipboard recovered from the transform wrapper. No masking,
+position-transform, destination-delegate, or other arbitrary wrapper is
+accepted.
+
 The requirement classification is: source, destination, region, anchors,
 repetitions, source mask/function, transform, removal flag, and traversal state
 are `REQUIRED_DIRECT_FIELD`; the clipboard and ignore-air setting are
@@ -194,6 +223,14 @@ bridge, fallback, and shape fields. Installed transformation makes
 `pasteHookInstalled=true` and `pasteBytecodeModified=true`. The separate
 `pasteAccelerated` count remains zero.
 
+Every bridge attempt also publishes `lastPasteGraphDiagnostic`. It lists only
+the known paste fields and the one standard source delegate (source,
+destination, mask, source function, configured/current transforms, clipboard
+delegate classification), followed by the exact rejecting predicate on
+fallback. It neither calls object `toString()` nor walks an arbitrary object
+graph. A successful recognition records the same bounded shape without a
+reject clause.
+
 ## Live verification
 
 Select and copy a visible region, move the placement point, run `//paste`, then
@@ -203,6 +240,13 @@ zero and accelerated remains zero. Run `//undo` and verify the pasted blocks and
 entities undo through native history. Repeat with `//paste -a`: the standard
 clipboard-bound air mask is owned, while an unsupported mask or graph increments
 fallback with a precise reason and continues through Enhanced synchronously.
+For the immediate live gate, use `//copy`, `//paste`, `/overdrive status`, and
+`//undo`; require `pasteFallbacks=0`, `pasteDeferredCompleted=1`, and visually
+confirm undo. Then repeat the status-and-undo sequence with `//paste -a`. A
+rotated probe (`//rotate 90`, `//paste`) verifies the same standard graph with
+the non-identity shared transform. These runtime actions cannot be performed by
+the source-only build environment and remain the required server acceptance
+step before acceleration work.
 
 ## Remaining Stage 5C work
 
