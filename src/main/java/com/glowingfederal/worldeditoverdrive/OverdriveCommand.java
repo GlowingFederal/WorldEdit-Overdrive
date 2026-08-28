@@ -37,7 +37,8 @@ public final class OverdriveCommand extends CommandBase {
         send(sender,"hookReason="+Stage4HookStatus.hookReason);
         send(sender,"bridge="+Stage4HookStatus.bridgeInvocations.get()+" accelerated="+Stage4HookStatus.acceleratedInvocations.get()+" fallbacks="+Stage4HookStatus.fallbackInvocations.get()+" lastFallback="+Stage4HookStatus.lastFallbackReason);
         send(sender,"pasteHookInstalled="+PasteHookStatus.pasteHookInstalled+" pasteBridgeInvocations="+PasteHookStatus.pasteBridgeInvocations.get()+" pasteAccelerated="+PasteHookStatus.pasteAccelerated.get()+" pasteFallbacks="+PasteHookStatus.pasteFallbacks.get()+" lastPasteFallbackReason="+PasteHookStatus.lastPasteFallbackReason);
-        send(sender,"pasteRuntimeShape="+PasteHookStatus.runtimeShape()+" forwardExtentCopySeen="+PasteHookStatus.forwardExtentCopySeen()+" pasteRuntimeShapeCompatible="+PasteHookStatus.runtimeShapeCompatible()+" pasteBytecodeModified="+PasteHookStatus.pasteHookInstalled);
+        send(sender,"pasteDeferredActive="+PasteHookStatus.pasteDeferredActive.get()+" pasteDeferredCompleted="+PasteHookStatus.pasteDeferredCompleted.get()+" pasteDeferredFailed="+PasteHookStatus.pasteDeferredFailed.get()+" lastPasteDeferredReason="+PasteHookStatus.lastPasteDeferredReason);
+        send(sender,"pasteRuntimeShape="+PasteHookStatus.runtimeShape()+" forwardExtentCopySeen="+PasteHookStatus.forwardExtentCopySeen()+" pasteRuntimeShapeCompatible="+PasteHookStatus.runtimeShapeCompatible()+" pasteBytecodeModified="+PasteHookStatus.pasteBytecodeModified);
         send(sender,"pasteHookReason="+PasteHookStatus.hookReason);
         send(sender,"coordinator="+(coordinator==null?"stopped":"running")+" workers="+c.preparationWorkers+" globalMemory="+c.maxPreparedBytes+" operationMemory="+c.maxPreparedBytesPerOperation+" commitTick="+OverdriveEditSummary.ms(c.commitBudgetNanos)+"ms");
     }

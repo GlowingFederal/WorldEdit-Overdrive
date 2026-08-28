@@ -8,6 +8,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FrameNode;
+import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
@@ -22,6 +23,8 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     private static final String LEGACY_TARGET="com.sk89q.worldedit.EditSession";
     private static final String COMMAND_TARGET="com.sk89q.worldedit.command.composition.SelectionCommand";
     private static final String PASTE_TARGET="com.sk89q.worldedit.function.operation.ForwardExtentCopy";
+    private static final String PASTE_COMMAND_TARGET="com.sk89q.worldedit.command.ClipboardCommands";
+    private static final String PASTE_DESC="(Lcom/sk89q/worldedit/entity/Player;Lcom/sk89q/worldedit/LocalSession;Lcom/sk89q/worldedit/EditSession;ZZZ)V";
     private static final String LEGACY_DESC="(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)I";
     private static final String CALL_DESC="(Lcom/sk89q/worldedit/util/command/argument/CommandArgs;Lcom/sk89q/minecraft/util/commands/CommandLocals;)Lcom/sk89q/worldedit/function/operation/Operation;";
     private static final String COMPLETE_DESC="(Lcom/sk89q/worldedit/function/operation/Operation;)V";
@@ -30,10 +33,42 @@ public final class EditSessionSetTransformer implements IClassTransformer {
 
     public byte[] transform(String name,String transformedName,byte[] bytes) {
         if(isPasteTarget(name,transformedName))return inspectPasteTarget(bytes);
+        if(PASTE_COMMAND_TARGET.equals(normalize(transformedName))||PASTE_COMMAND_TARGET.equals(normalize(name)))return transformPasteCommand(bytes);
         if(COMMAND_TARGET.equals(transformedName))return transformCommand(name,transformedName,bytes);
         if(LEGACY_TARGET.equals(transformedName))return transformLegacy(name,transformedName,bytes);
         return bytes;
     }
+
+    private byte[] transformPasteCommand(byte[] bytes) {
+        try {
+            ClassNode node=new ClassNode();new ClassReader(bytes).accept(node,ClassReader.SKIP_FRAMES);
+            MethodNode target=null;MethodInsnNode completion=null;int methods=0,calls=0;
+            for(MethodNode method:node.methods)if("paste".equals(method.name)&&PASTE_DESC.equals(method.desc)){
+                methods++;target=method;
+                for(AbstractInsnNode insn=method.instructions.getFirst();insn!=null;insn=insn.getNext())if(insn instanceof MethodInsnNode){
+                    MethodInsnNode call=(MethodInsnNode)insn;
+                    if(call.getOpcode()==Opcodes.INVOKESTATIC&&!call.itf&&"com/sk89q/worldedit/function/operation/Operations".equals(call.owner)
+                            &&"completeLegacy".equals(call.name)&&COMPLETE_DESC.equals(call.desc)){calls++;completion=call;}
+                }
+            }
+            if(methods!=1||calls!=1||target==null||completion==null)return pasteCommandUnavailable(bytes,"expected one paste"+PASTE_DESC+" completeLegacy call; methods="+methods+", calls="+calls);
+            // Stack on entry is [operation]. Keep it for vanilla; ownership is explicit
+            // only after tryDefer has registered a complete deferred owner.
+            LabelNode vanilla=new LabelNode();InsnList hook=new InsnList();
+            hook.add(new InsnNode(Opcodes.DUP));hook.add(new VarInsnNode(Opcodes.ALOAD,1));hook.add(new VarInsnNode(Opcodes.ALOAD,2));
+            hook.add(new VarInsnNode(Opcodes.ILOAD,6));
+            hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/PasteBridge","tryDefer",
+                    "(Lcom/sk89q/worldedit/function/operation/Operation;Lcom/sk89q/worldedit/entity/Player;Lcom/sk89q/worldedit/LocalSession;Z)Lcom/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision;",false));
+            hook.add(new FieldInsnNode(Opcodes.GETSTATIC,"com/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision","DEFERRED","Lcom/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision;"));
+            hook.add(new JumpInsnNode(Opcodes.IF_ACMPNE,vanilla));hook.add(new InsnNode(Opcodes.POP));hook.add(new InsnNode(Opcodes.RETURN));hook.add(vanilla);
+            target.instructions.insertBefore(completion,hook);
+            ClassWriter writer=new SafeClassWriter(ClassWriter.COMPUTE_FRAMES|ClassWriter.COMPUTE_MAXS);node.accept(writer);
+            PasteHookStatus.hookInstalled();OverdriveLog.info("Stage 5C installed ClipboardCommands#paste{} completeLegacy interception",PASTE_DESC);
+            return writer.toByteArray();
+        }catch(Throwable incompatible){return pasteCommandUnavailable(bytes,"paste call-site transform failed: "+incompatible.toString());}
+    }
+    private static byte[] pasteCommandUnavailable(byte[] bytes,String reason){PasteHookStatus.pasteHookInstalled=false;PasteHookStatus.hookReason=reason;
+        OverdriveLog.warn("Stage 5C paste hook unavailable; Enhanced remains vanilla ({})",reason);return bytes;}
 
     static boolean isPasteTarget(String name,String transformedName) {
         return PASTE_TARGET.equals(normalize(name))||PASTE_TARGET.equals(normalize(transformedName));

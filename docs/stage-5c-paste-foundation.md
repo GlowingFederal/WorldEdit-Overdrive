@@ -1,12 +1,6 @@
-# Stage 5C paste foundation
+# Stage 5C live deferred paste interception
 
-This change advances Stage 5C without claiming paste acceleration prematurely.
-The runtime transformer now recognizes `ForwardExtentCopy` and verifies the
-private member and `resume(RunContext)` descriptors needed by a future bridge.
-It intentionally leaves the class bytes untouched and reports paste INACTIVE:
-the asynchronous command-continuation contract has not yet been implemented,
-and returning normally from an intercepted completion would make Enhanced send
-feedback and close the session before a multi-tick edit finished.
+The runtime shape gate remains strict, and this increment installs the first active command-scoped paste interception. It defers Enhanced's original operation without claiming accelerated planning.
 
 ## Verified source path, LaunchWrapper identity, and runtime gate
 
@@ -140,8 +134,9 @@ biome-copy graphs are `UNSUPPORTED`. Entity and biome values exposed by the
 adapter are consequently the verified constants `true` and `false`, not
 reflected or guessed booleans.
 
-This strictness is intentional. The adapter is not connected to mutation yet,
-so no paste can be partially accelerated by this slice.
+This strictness is intentional. The live bridge now uses the adapter solely as
+the ownership gate; rejected graphs remain wholly synchronous and accepted
+graphs run the unchanged operation later, so no paste is partially handled.
 
 ## Primitive clipboard representation
 
@@ -157,19 +152,66 @@ for unknown implementations before workers may read them.
 `/overdrive status` now reports paste diagnostics independently of `//set`:
 
 ```text
-pasteHookInstalled=false pasteBridgeInvocations=0 pasteAccelerated=0 pasteFallbacks=0 lastPasteFallbackReason=null
-pasteRuntimeShape=SEEN_COMPATIBLE forwardExtentCopySeen=true pasteRuntimeShapeCompatible=true pasteBytecodeModified=false
-pasteHookReason=compatible; async continuation runner not implemented
+pasteHookInstalled=true pasteBridgeInvocations=1 pasteAccelerated=0 pasteFallbacks=0 lastPasteFallbackReason=null
+pasteDeferredActive=0 pasteDeferredCompleted=1 pasteDeferredFailed=0 lastPasteDeferredReason=owned standard Enhanced 6.3.0 paste graph
+pasteRuntimeShape=HOOK_INSTALLED forwardExtentCopySeen=true pasteRuntimeShapeCompatible=true pasteBytecodeModified=true
+pasteHookReason=installed
 ```
+
+## First live command interception and ownership
+
+The active transformer targets only
+`com.sk89q.worldedit.command.ClipboardCommands#paste(Player, LocalSession,
+EditSession, boolean, boolean, boolean):void`. It requires exactly one matching
+overload and exactly one static `Operations.completeLegacy(Operation):void`
+invocation. Immediately before that invocation, injected code duplicates the
+built operation and calls `PasteBridge.tryDefer`. `VANILLA` leaves the original
+operand and call untouched. `DEFERRED` is returned only after the strict adapter
+accepts the graph and `DeferredPasteManager.register` retains a complete owner;
+only then does the injected branch discard the operand and return. Descriptor,
+call-site, or graph mismatch fails open, and no global operation runner changes.
+
+The owner retains the original `ForwardExtentCopy`, destination `EditSession`,
+player, `LocalSession`, clipboard holder, destination, and selection flag.
+Registration performs no traversal. At a later server END tick the manager
+progresses one owner with the original `Operations.completeLegacy` on the main
+thread. Enhanced therefore remains authoritative for traversal, air masks,
+transforms, repetitions, entities, affected count, extent behavior, and native
+history. One operation may consume that tick in this validation increment; this
+is lifecycle deferral, not accelerated or worker-side paste planning.
+
+The command framework's early remember observes an empty session. After the
+later traversal, the owner calls `LocalSession.remember` on the retained
+EditSession, which flushes and records the normal Enhanced change set for undo.
+Only then does it replay Enhanced 6.3.0's optional selection update and exact
+paste success line. Feedback is therefore emitted once and only after mutation.
+A later-tick failure is counted; it cannot be synchronously rethrown into a
+command stack which has already returned.
+
+Status exposes `pasteDeferredActive`, `pasteDeferredCompleted`,
+`pasteDeferredFailed`, and `lastPasteDeferredReason`, in addition to hook,
+bridge, fallback, and shape fields. Installed transformation makes
+`pasteHookInstalled=true` and `pasteBytecodeModified=true`. The separate
+`pasteAccelerated` count remains zero.
+
+## Live verification
+
+Select and copy a visible region, move the placement point, run `//paste`, then
+run `/overdrive status`. `pasteBridgeInvocations` must increment; either active
+is briefly nonzero or completed increments after the END tick; fallback remains
+zero and accelerated remains zero. Run `//undo` and verify the pasted blocks and
+entities undo through native history. Repeat with `//paste -a`: the standard
+clipboard-bound air mask is owned, while an unsupported mask or graph increments
+fallback with a precise reason and continues through Enhanced synchronously.
 
 ## Remaining Stage 5C work
 
-**Paste acceleration is still inactive.** No acceptance claim is made for accelerated blocks, transformations, reorder,
+**Paste acceleration is still inactive, although deferred interception is live.** No acceptance claim is made for accelerated blocks, transformations, reorder,
 tiles, masks, entities, limits, continuation, synchronization, differential
 correctness, or performance. In particular, native/modded and tile-bearing
 cells have not been made fallback causes; execution simply is not owned at all.
-The next implementation must add the scheduler-aware command owner before
-installing the hook, then add snapshot-backed planning, exact Enhanced reorder
-tables, hybrid raw/native writes, bounded history, and entity history.
+The next implementation must add snapshot-backed planning, exact Enhanced
+reorder tables, hybrid raw/native writes, bounded history, and entity history
+behind the now-live command owner.
 
 No runtime matrix or benchmarks are claimed by this document.
