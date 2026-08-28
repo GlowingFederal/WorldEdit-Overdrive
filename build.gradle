@@ -95,6 +95,10 @@ subprojects {
     }
 
     repositories {
+        // WorldEdit Enhanced is published through Curse Maven. Keep the plain
+        // Maven declaration for this ForgeGradle generation (there is no
+        // modern fg.deobf dependency helper here).
+        maven { url "https://www.cursemaven.com" }
         // Resolve WorldEdit coordinates from the project's authoritative
         // repository before consulting legacy aggregate mirrors.
         maven {url "https://maven.enginehub.org/repo/"}

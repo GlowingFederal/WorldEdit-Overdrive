@@ -28,3 +28,11 @@ Changes are listed oldest to newest.
   mirrors while preserving the self-contained Forge shadow packaging rules.
 - Corrected the build and ownership documentation to identify the snapshot as
   an embedded build input rather than an external runtime dependency.
+
+## (a5d10cc Layer KAWE on WorldEdit Enhanced 6.3.0)
+
+- Replaced the legacy WorldEdit core and Forge dependencies with the external
+  WorldEdit Enhanced 6.3.0 Curse Maven artifact.
+- Removed WorldEdit shadow assembly and KAWE's competing Forge player wrapper.
+- Required Enhanced's `worldedit` Forge mod and documented FalsePatternLib,
+  source ownership, retained FAWE overrides, and `AbstractChunkUpdater`.

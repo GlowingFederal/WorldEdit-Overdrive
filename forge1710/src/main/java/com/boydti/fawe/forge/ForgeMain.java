@@ -21,7 +21,7 @@ import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.EntityJoinWorldEvent;
 import org.apache.logging.log4j.Logger;
 
-@Mod(modid = "kawe", name = "KamAsyncWorldEdit", version = "1.0", acceptableRemoteVersions = "*", dependencies = "before:worldedit")
+@Mod(modid = "kawe", name = "KamAsyncWorldEdit", version = "1.0", acceptableRemoteVersions = "*", dependencies = "required-after:worldedit")
 public class ForgeMain {
     private static FaweForge IMP;
     private Logger logger;
