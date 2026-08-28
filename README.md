@@ -1,5 +1,9 @@
 # WorldEdit Overdrive
 
+Stage 4.6 dedicated-server installation, diagnostics, compatibility decisions,
+and the live verification matrix are documented in
+[`docs/stage-4.6-dedicated-server.md`](docs/stage-4.6-dedicated-server.md).
+
 The Stage 3 bounded execution/coordinator architecture is documented in
 [`docs/stage-3-execution.md`](docs/stage-3-execution.md). It remains an internal
 API and does not integrate WorldEdit commands or sessions.

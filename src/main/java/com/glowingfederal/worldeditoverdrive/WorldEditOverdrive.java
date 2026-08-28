@@ -1,10 +1,10 @@
 package com.glowingfederal.worldeditoverdrive;
 
 import com.sk89q.worldedit.WorldEdit;
-import cpw.mods.fml.common.FMLLog;
 import cpw.mods.fml.common.Mod;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartedEvent;
+import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
 import cpw.mods.fml.common.FMLCommonHandler;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveConfiguration;
@@ -26,6 +26,7 @@ public final class WorldEditOverdrive {
     public static final String MOD_NAME = "WorldEdit Overdrive";
     public static final String VERSION = "1.0.0";
     private volatile OverdriveCoordinator coordinator;
+    private final OverdriveConfiguration configuration=OverdriveConfiguration.defaults();
     private final OverdriveTickHandler ticks = new OverdriveTickHandler();
 
     @Mod.EventHandler
@@ -33,12 +34,13 @@ public final class WorldEditOverdrive {
         ModContainer worldEdit=Loader.instance().getIndexedModList().get("worldedit");
         String fmlVersion=worldEdit==null ? "not present" : worldEdit.getVersion();
         String apiVersion=WorldEdit.getVersion();
-        FMLLog.info("WorldEdit Overdrive detected WorldEdit mod: %s",fmlVersion);
+        OverdriveLog.info("Server diagnostics active");
+        OverdriveLog.info("detected WorldEdit mod: {}",fmlVersion);
         if (!sameVersion(apiVersion,fmlVersion))
-            FMLLog.info("WorldEdit Overdrive version diagnostics: FML=%s, WorldEdit API=%s",fmlVersion,apiVersion);
+            OverdriveLog.info("version diagnostics: FML={}, WorldEdit API={}",fmlVersion,apiVersion);
         String reason=Stage4HookStatus.hookInstalled ? "" : Stage4HookStatus.editSessionSeen
                 ? " (target descriptor did not match)" : " (EditSession target not transformed)";
-        FMLLog.info("WorldEdit Overdrive: WorldEdit %s detected; Stage 4 //set hook %s%s",
+        OverdriveLog.info("WorldEdit {} detected; Stage 4 //set hook {}{}",
                 fmlVersion,Stage4HookStatus.hookInstalled ? "ACTIVE" : "INACTIVE",reason);
         FMLCommonHandler.instance().bus().register(ticks);
     }
@@ -48,8 +50,11 @@ public final class WorldEditOverdrive {
     }
 
     @Mod.EventHandler
+    public void serverStarting(FMLServerStartingEvent event){event.registerServerCommand(new OverdriveCommand(this));}
+
+    @Mod.EventHandler
     public void serverStarted(FMLServerStartedEvent event) {
-        coordinator = new OverdriveCoordinator(OverdriveConfiguration.defaults());
+        coordinator = new OverdriveCoordinator(configuration);
         ticks.setCoordinator(coordinator);
     }
 
@@ -64,4 +69,5 @@ public final class WorldEditOverdrive {
 
     /** Internal Stage 3 API; command/session integration intentionally does not use it yet. */
     public OverdriveCoordinator getCoordinator() { return coordinator; }
+    public OverdriveConfiguration getConfiguration(){return configuration;}
 }

@@ -6,6 +6,7 @@ import com.glowingfederal.worldeditoverdrive.backend.PreparedChunkChange;
 import com.glowingfederal.worldeditoverdrive.backend.ServerThreadGuard;
 import com.glowingfederal.worldeditoverdrive.backend.SideEffectPolicy;
 import com.glowingfederal.worldeditoverdrive.execution.ChunkSynchronizer;
+import com.glowingfederal.worldeditoverdrive.OverdriveLog;
 import com.sk89q.jnbt.CompoundTag;
 import com.sk89q.worldedit.BlockVector;
 import com.sk89q.worldedit.EditSession;
@@ -17,7 +18,6 @@ import com.sk89q.worldedit.history.change.BlockChange;
 import com.sk89q.worldedit.patterns.Pattern;
 import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.regions.Region;
-import cpw.mods.fml.common.FMLLog;
 import java.lang.reflect.Method;
 import java.lang.reflect.Field;
 import java.util.List;
@@ -36,17 +36,15 @@ public final class Stage4SetBridge {
         if (session == null || region == null || pattern == null) return fallback("null argument: session="+session+", region="+region+", pattern="+pattern);
         if (!runtimeTypesLogged) {
             runtimeTypesLogged=true;
-            FMLLog.info("WorldEdit Overdrive //set runtime: session=%s, region=%s, pattern=%s, world=%s, queueEnabled=%s, mask=%s",
+            OverdriveLog.info("//set runtime: session={}, region={}, pattern={}, world={}, queueEnabled={}, mask={}",
                     type(session),type(region),type(pattern),type(session.getWorld()),session.isQueueEnabled(),value(session.getMask()));
         }
-        // CuboidRegion is deliberately exact: subclasses may override bounds/iteration semantics.
-        if (region.getClass() != CuboidRegion.class) return fallback("region="+type(region)+", expected exact CuboidRegion");
+        CuboidBounds bounds=CuboidBounds.resolve(region);
+        if (bounds == null) return fallback("region="+type(region)+", complete cuboid bounds not proven");
         BaseBlock block=ConstantPatternResolver.resolve(pattern);
         if (block == null) return fallback("pattern="+type(pattern)+", expected SingleBlockPattern");
-        // Enhanced's builder creates EditSession directly; unknown subclasses can alter the extent boundary.
-        if (session.getClass() != EditSession.class) return fallback("session="+type(session)+", expected exact EditSession");
-        if (session.getMask() != null) return fallback("active mask="+value(session.getMask()));
-        if (session.isQueueEnabled()) return fallback("reorder queue enabled");
+        EditSessionCompatibilityInspector.Result compatibility=EditSessionCompatibilityInspector.inspect(session);
+        if(compatibility.classification!=EditSessionCompatibilityInspector.Classification.SAFE)return fallback(compatibility.reason);
         if (!(session.getWorld() instanceof ForgeWorld)) return fallback("world="+type(session.getWorld())+", expected ForgeWorld");
         net.minecraft.world.World nativeWorld=((ForgeWorld)session.getWorld()).getWorld();
         if (!(nativeWorld instanceof WorldServer)) return fallback("native world="+type(nativeWorld)+", expected WorldServer");
@@ -67,33 +65,43 @@ public final class Stage4SetBridge {
         if (nativeBlock==null) return fallback("unregistered legacy ID="+block.getId());
         if (tile!=null && !nativeBlock.hasTileEntity(block.getData())) return fallback("NBT supplied for non-tile block");
         ForgeChunkWriter writer=new ForgeChunkWriter(); ChunkSynchronizer sync=new ChunkSynchronizer();
-        long started=System.nanoTime();
+        long started=System.nanoTime(), planned=System.nanoTime();
         List<PreparedChunkChange> changes=ConstantFillPlanner.prepareChanged(world,(CuboidRegion)region,block,tile);
-        long planned=System.nanoTime();
+        long filtered=System.nanoTime();
         if (!reserveLimit(session,(int)volume)) return fallback("BlockChangeLimiter state unavailable");
-        int affected=0, raw=0, nativeCount=0, dense=0, sparse=0; long historyNanos=0, commitNanos=0,
+        int affected=0, raw=0, nativeCount=0, dense=0, sparse=0,sparsePackets=0,chunkPackets=0; long historyNanos=0, commitNanos=0,
                 lightingNanos=0, syncNanos=0, preparedBytes=0;
         for(PreparedChunkChange change:changes) preparedBytes+=change.estimatedBytes();
-        for(PreparedChunkChange change:changes) {
+        String phaseName="history/commit/synchronization"; PreparedChunkChange active=null; boolean mutationStarted=false;
+        try { for(PreparedChunkChange change:changes) { active=change;
             long phase=System.nanoTime();
             captureHistory(session,change,block);
-            historyNanos+=System.nanoTime()-phase; phase=System.nanoTime();
+            historyNanos+=System.nanoTime()-phase; phase=System.nanoTime(); mutationStarted=true;
             ChunkCommitResult result=writer.commit(world,change,SideEffectPolicy.RAW);
             commitNanos+=System.nanoTime()-phase; lightingNanos+=result.getLightingNanos();
             raw+=result.getRawBlocks(); nativeCount+=result.getNativeBlocks(); dense+=result.getDenseSections();
             sparse+=result.getTouchedSections()-result.getDenseSections();
             Chunk chunk=world.getChunkFromChunkCoords(change.getChunkX(),change.getChunkZ());
-            phase=System.nanoTime(); sync.synchronize(world,chunk,change,result,512);
+            phase=System.nanoTime(); ChunkSynchronizer.Strategy strategy=sync.synchronize(world,chunk,change,result,512);
+            if(strategy==ChunkSynchronizer.Strategy.CHUNK)chunkPackets++;else if(strategy==ChunkSynchronizer.Strategy.MULTI_BLOCK)sparsePackets++;
             syncNanos+=System.nanoTime()-phase; affected+=result.getChangedBlocks();
+        }} catch(Throwable failure){
+            long total=System.nanoTime()-started;
+            String where=active==null?"": " chunk="+active.getChunkX()+","+active.getChunkZ();
+            OverdriveEditSummary summary=new OverdriveEditSummary("//set","accelerated",volume,affected,changes.size(),dense,sparse,raw,nativeCount,
+                    planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,0,preparedBytes,false,phaseName,failure.toString());
+            OverdriveSummaries.publish(summary);
+            OverdriveLog.error("//set failed: phase="+phaseName+where+" mutationStarted="+mutationStarted,failure);
+            if(failure instanceof Error)throw (Error)failure;
+            if(failure instanceof RuntimeException)throw (RuntimeException)failure;
+            throw new RuntimeException(failure);
         }
         long total=System.nanoTime()-started;
-        // INFO is intentionally operation-level and uses FML's normal server log route.
-        FMLLog.info("Overdrive //set: %,d changed, %,d chunks, %,d dense sections, %,d sparse sections, "
-                + "%,d raw / %,d native, plan %.3f ms, history %.3f ms, commit %.3f ms "
-                + "(lighting/finalization %.3f ms), sync %.3f ms, total %.3f ms, peak prepared %,d bytes",
-                affected,changes.size(),dense,sparse,raw,nativeCount,(planned-started)/1000000D,
-                historyNanos/1000000D,commitNanos/1000000D,lightingNanos/1000000D,
-                syncNanos/1000000D,total/1000000D,preparedBytes);
+        OverdriveEditSummary summary=new OverdriveEditSummary("//set","accelerated",volume,affected,changes.size(),dense,sparse,raw,nativeCount,
+                planned-started,filtered-planned,historyNanos,commitNanos,lightingNanos,syncNanos,total,sparsePackets,chunkPackets,0,preparedBytes,true,null,null);
+        OverdriveSummaries.publish(summary);
+        OverdriveLog.info("//set summary emission proof: snapshot published");
+        OverdriveLog.info(summary.format());
         Stage4HookStatus.acceleratedInvocations.incrementAndGet();
         return affected;
     }
@@ -112,13 +120,13 @@ public final class Stage4SetBridge {
             countField.setInt(limiter,count+attempts);
             return true;
         } catch(MaxChangedBlocksException expected) { throw expected; }
-        catch(Exception incompatible) { FMLLog.warning("Overdrive limiter handshake unavailable: %s",incompatible.toString()); return false; }
+        catch(Exception incompatible) { OverdriveLog.warn("limiter handshake unavailable: {}",incompatible.toString()); return false; }
     }
 
     private static Integer fallback(String reason) {
         Stage4HookStatus.fallbackInvocations.incrementAndGet();
         Stage4HookStatus.lastFallbackReason=reason;
-        FMLLog.info("Overdrive //set fallback: %s",reason);
+        OverdriveLog.info("//set fallback: {}",reason);
         return null;
     }
 
@@ -144,7 +152,7 @@ public final class Stage4SetBridge {
         try { Class<?> type=Class.forName("com.sk89q.worldedit.forge.NBTConverter");
             Method method=type.getDeclaredMethod("toNative",CompoundTag.class); method.setAccessible(true);
             NBTTagCompound nativeTag=(NBTTagCompound)method.invoke(null,tag); nativeTag.setString("id",block.getNbtId()); return nativeTag;
-        } catch(Exception incompatible) { FMLLog.warning("Overdrive tile translation unavailable: %s",incompatible.toString()); return null; }
+        } catch(Exception incompatible) { OverdriveLog.warn("tile translation unavailable: {}",incompatible.toString()); return null; }
     }
 
 }

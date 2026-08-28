@@ -14,6 +14,7 @@ import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.VarInsnNode;
+import com.glowingfederal.worldeditoverdrive.OverdriveLog;
 
 /** Adds one nullable delegation at the head of Enhanced's region/pattern set method. */
 public final class EditSessionSetTransformer implements IClassTransformer {
@@ -40,13 +41,13 @@ public final class EditSessionSetTransformer implements IClassTransformer {
         }
         Stage4HookStatus.targetMethodMatched=matches==1;
         if(matches!=1) {
-            cpw.mods.fml.common.FMLLog.severe("WorldEdit Overdrive saw EditSession (%s) but expected descriptor %s matched %d methods; Stage 4 hook not installed",
+            OverdriveLog.error("saw EditSession ({}) but expected descriptor {} matched {} methods; Stage 4 hook not installed",
                     Stage4HookStatus.targetNames,DESC,matches);
             throw new IllegalStateException("Expected exactly one Enhanced setBlocks(Region,Pattern), found "+matches);
         }
         ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS); node.accept(writer);
         Stage4HookStatus.hookInstalled=true;
-        cpw.mods.fml.common.FMLLog.info("WorldEdit Overdrive Stage 4 hook installed into EditSession#setBlocks(Region, Pattern) (%s; descriptor matched=true)",
+        OverdriveLog.info("Stage 4 hook installed into EditSession#setBlocks(Region, Pattern) ({}; descriptor matched=true)",
                 Stage4HookStatus.targetNames);
         return writer.toByteArray();
     }

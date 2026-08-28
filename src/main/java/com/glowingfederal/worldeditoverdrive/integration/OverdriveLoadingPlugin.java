@@ -1,6 +1,7 @@
 package com.glowingfederal.worldeditoverdrive.integration;
 
 import cpw.mods.fml.relauncher.IFMLLoadingPlugin;
+import com.glowingfederal.worldeditoverdrive.OverdriveLog;
 import java.util.Map;
 
 @IFMLLoadingPlugin.Name("WorldEditOverdriveStage4")
@@ -15,7 +16,7 @@ import java.util.Map;
 public final class OverdriveLoadingPlugin implements IFMLLoadingPlugin {
     public OverdriveLoadingPlugin() {
         Stage4HookStatus.corePluginLoaded=true;
-        cpw.mods.fml.common.FMLLog.info("WorldEdit Overdrive core plugin initialized");
+        OverdriveLog.info("core plugin initialized");
     }
     public String[] getASMTransformerClass(){return new String[]{EditSessionSetTransformer.class.getName()};}
     public String getModContainerClass(){return null;}

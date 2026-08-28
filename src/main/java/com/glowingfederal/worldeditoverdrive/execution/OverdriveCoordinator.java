@@ -5,7 +5,7 @@ import com.glowingfederal.worldeditoverdrive.backend.ForgeChunkWriter;
 import com.glowingfederal.worldeditoverdrive.backend.PreparedChunkChange;
 import com.glowingfederal.worldeditoverdrive.backend.ServerThreadGuard;
 import com.glowingfederal.worldeditoverdrive.backend.SideEffectPolicy;
-import cpw.mods.fml.common.FMLLog;
+import com.glowingfederal.worldeditoverdrive.OverdriveLog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ArrayBlockingQueue;
@@ -146,12 +146,12 @@ public final class OverdriveCoordinator {
 
     private void failCommit(OverdriveOperation op, PreparedChunkChange change, Throwable cause) {
         synchronized(lock) { op.commitActive=false; release(op, change.estimatedBytes()); failLocked(op,cause); }
-        FMLLog.severe("Overdrive operation %d commit failed at chunk %d,%d: %s", op.id,
+        OverdriveLog.error("operation {} commit failed at chunk {},{}; mutationStarted=true: {}", op.id,
                 change.getChunkX(),change.getChunkZ(),cause.toString());
     }
     private void fail(OverdriveOperation op,String phase,PreparedChunkChange change,Throwable cause) {
         synchronized(lock) { preparationFinished(op); failLocked(op,cause); }
-        FMLLog.severe("Overdrive operation %d %s failed%s: %s",op.id,phase,
+        OverdriveLog.error("operation {} {} failed{}; mutationStarted=false: {}",op.id,phase,
                 change==null?"":" at chunk "+change.getChunkX()+","+change.getChunkZ(),cause.toString());
     }
     private void failLocked(OverdriveOperation op,Throwable cause) {
