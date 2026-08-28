@@ -183,3 +183,14 @@ Changes are listed oldest to newest.
 - Added Stage 5A design documentation and synthetic dependency/phase model tests;
   clipboard paste, snapshots, compressed history, and block-specific dependency
   tables remain intentionally deferred.
+
+## (fc5b9f2 Begin Stage 5B snapshots and primitive history)
+
+- Added immutable, requested-channel chunk snapshots with compact air,
+  homogeneous, and dense legacy numeric-state sections plus deep-copied tile
+  NBT and explicit byte accounting.
+- Added bounded primitive Enhanced-owned history with lazy undo/redo adapters,
+  tile before/after state, and committed-prefix failure behavior.
+- Migrated accelerated constant fill recording to primitive history and
+  documented the Stage 5B lifecycle, current in-memory limit, spill status,
+  verification boundary, and remaining Stage 5C work.
