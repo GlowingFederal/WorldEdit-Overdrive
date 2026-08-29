@@ -480,3 +480,17 @@ Changes are listed oldest to newest.
 - Reset detailed counters at accelerated-paste admission and label them as last-paste
   diagnostics rather than presenting cumulative values as one operation's results.
 - Runtime validation with the large reorder-enabled acceptance schematic remains required.
+
+## 2026-08-29 04:00 — Retain deferred paste owners through reorder commit
+
+- Replaced the deferred paste owner's submission/finalization fall-through with explicit
+  capture, planning, submission, commit, finalization, complete, and failed states.
+- A retained reorder commit operation now keeps the owner registered and returns control
+  to the coordinator after every bounded slice; entities, history, selection, success
+  messaging, and successful removal remain unreachable until the continuation is null and
+  all observable reorder stages are exhausted.
+- Made successful coordinator removal fail closed unless the owner is complete, its commit
+  operation is null, and reorder completion diagnostics are consistent. `commitRemaining`
+  now follows observable downstream reorder work after block submission finishes.
+- Source inspection and diff checks were performed without compiling or running the project.
+  Runtime validation of repeated bounded resumes and eventual large-paste completion remains required.
