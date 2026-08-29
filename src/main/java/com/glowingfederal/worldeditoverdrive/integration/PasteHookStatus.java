@@ -24,9 +24,14 @@ public final class PasteHookStatus {
     public static final AtomicLong pasteDeferredFailed=new AtomicLong();
     public static final AtomicLong pasteAccelerationFallbacks=new AtomicLong();
     public static final AtomicLong pastePlanningActive=new AtomicLong(),pasteCommitActive=new AtomicLong();
+    public static final AtomicLong pasteWorkerTasksSubmitted=new AtomicLong(),pasteWorkerTasksCompleted=new AtomicLong(),pasteWorkerActive=new AtomicLong();
     public static final AtomicLong pastePreparedBlocks=new AtomicLong(),pastePlannedBlocks=new AtomicLong(),pasteSubmittedBlocks=new AtomicLong(),pasteCommittedBlocks=new AtomicLong();
     public static final AtomicLong pastePreparedTiles=new AtomicLong(),pasteCommittedTiles=new AtomicLong(),pastePreparedEntities=new AtomicLong(),pasteCommittedEntities=new AtomicLong(),pasteTransformedBlocks=new AtomicLong();
     public static final AtomicLong lastPastePrepareMillis=new AtomicLong(),lastPastePlanMillis=new AtomicLong(),lastPasteCommitMillis=new AtomicLong();
+    public static final AtomicLong lastOperationCommandInterceptMillis=new AtomicLong(),lastOperationSnapshotWallMillis=new AtomicLong(),lastOperationSnapshotActiveMillis=new AtomicLong();
+    public static final AtomicLong lastOperationPlanWallMillis=new AtomicLong(),lastOperationCommitWallMillis=new AtomicLong(),lastOperationCommitActiveMillis=new AtomicLong(),lastOperationWallMillis=new AtomicLong(),lastOperationMaxServerSliceMillis=new AtomicLong();
+    public static final AtomicLong snapshotProcessed=new AtomicLong(),snapshotTotalEstimate=new AtomicLong(),workerQueuedChunks=new AtomicLong(),workerCompletedChunks=new AtomicLong(),commitRemaining=new AtomicLong();
+    public static volatile String activePhase="IDLE";
     public static RuntimeShape runtimeShape(){return runtimeShape.get();}
     public static boolean forwardExtentCopySeen(){return runtimeShape.get()!=RuntimeShape.NOT_SEEN;}
     public static boolean runtimeShapeCompatible(){RuntimeShape state=runtimeShape.get();return state==RuntimeShape.SEEN_COMPATIBLE||state==RuntimeShape.HOOK_INSTALLED;}

@@ -31,6 +31,8 @@ import net.minecraft.world.chunk.Chunk;
 
 /** Entry point invoked by the surgical EditSession transformer; null means untouched fallback. */
 public final class Stage4SetBridge {
+    /** Hook presence is not acceleration eligibility: the old fill path is unbounded. */
+    private static volatile boolean incrementalOwnerInstalled;
     private static volatile boolean runtimeTypesLogged;
     private Stage4SetBridge() { }
 
@@ -38,6 +40,7 @@ public final class Stage4SetBridge {
     public static Integer trySetOperation(Operation operation)
             throws MaxChangedBlocksException {
         Stage4HookStatus.bridgeInvocations.incrementAndGet();
+        if(!incrementalOwnerInstalled)return fallback("set incremental owner not installed");
         OverdriveLog.info("WorldEditOverdrive //set bridge invoked");
         if (!(operation instanceof RegionVisitor)) return null;
         try {
@@ -60,6 +63,7 @@ public final class Stage4SetBridge {
     public static Integer trySet(EditSession session, Region region, Pattern pattern)
             throws MaxChangedBlocksException {
         Stage4HookStatus.bridgeInvocations.incrementAndGet();
+        if(!incrementalOwnerInstalled)return fallback("set incremental owner not installed");
         OverdriveLog.info("WorldEditOverdrive legacy setBlocks bridge invoked");
         if (session == null || region == null || pattern == null) return fallback("null argument: session="+session+", region="+region+", pattern="+pattern);
         BaseBlock block=ConstantPatternResolver.resolve(pattern);

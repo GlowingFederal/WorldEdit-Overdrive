@@ -15,6 +15,7 @@ public final class PasteBridge {
     }
     /** Called only by the transformed standard ClipboardCommands#paste call site. */
     public static Decision tryDefer(Operation operation,Player player,LocalSession session,boolean selectPasted) {
+        long interceptStarted=System.nanoTime();
         PasteHookStatus.pasteBridgeInvocations.incrementAndGet();
         if(!(operation instanceof ForwardExtentCopy))return fallback("PasteBuilder did not return ForwardExtentCopy");
         PasteOperationAdapter.Result recognized=PasteOperationAdapter.recognize((ForwardExtentCopy)operation);
@@ -24,9 +25,10 @@ public final class PasteBridge {
             DeferredPasteManager.register((ForwardExtentCopy)operation,recognized.adapter,player,session,selectPasted);
             PasteHookStatus.lastPasteFallbackReason=null;
             PasteHookStatus.lastPasteDeferredReason="owned standard Enhanced 6.3.0 paste graph";
-            return Decision.DEFERRED;
-        } catch(Throwable unavailable) { return fallback("deferred ownership unavailable: "+unavailable.toString()); }
+            return deferred(interceptStarted);
+        } catch(Throwable unavailable) { PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-interceptStarted)/1000000L);return fallback("deferred ownership unavailable: "+unavailable.toString()); }
     }
+    private static Decision deferred(long started){PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-started)/1000000L);return Decision.DEFERRED;}
     private static Decision fallback(String reason){PasteHookStatus.pasteFallbacks.incrementAndGet();PasteHookStatus.lastPasteFallbackReason=reason;return Decision.VANILLA;}
     public static Result tryCreateContinuation(ForwardExtentCopy operation) {
         PasteHookStatus.pasteBridgeInvocations.incrementAndGet();

@@ -409,3 +409,12 @@ Changes are listed oldest to newest.
   verifier failure policy.
 - Production compilation and ASM binary verification were intentionally not run because
   this change request explicitly prohibits compiling binary files.
+
+## (f4bae76 Make paste capture yield from command start)
+
+- Moved standard paste block, special-state, and entity preparation out of command interception into a resumable, adaptive-deadline server-tick cursor.
+- Kept immutable transformation/filter planning on tracked workers and bounded destination work by deadline, mutation batch, entity count, and distinct chunks per slice.
+- Added phase, progress, worker utilization, interception, wall-versus-active occupancy, and maximum server-slice diagnostics.
+- Downgraded synchronous set, replace, geometry, overlay, naturalize, stack, and move adapters to truthful `HOOKED` status and native fallthrough rather than claiming them as asynchronously safe.
+- Documented the synchronous-loop audit, ordering constraints, chunk-load behavior, finalization limitation, and deferred lifecycle.
+- Production compilation was intentionally not run because the user explicitly prohibits compiling or adding binary files.
