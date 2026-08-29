@@ -2,6 +2,7 @@ package com.glowingfederal.worldeditoverdrive.integration;
 
 import com.glowingfederal.worldeditoverdrive.OverdriveLog;
 import net.minecraft.launchwrapper.IClassTransformer;
+import net.minecraft.launchwrapper.Launch;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
@@ -16,6 +17,14 @@ import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.VarInsnNode;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Redirects Enhanced's composed /set operation before its RegionVisitor executes. */
 public final class EditSessionSetTransformer implements IClassTransformer {
@@ -115,6 +124,7 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     private byte[] transformLegacy(String name,String transformedName,byte[] bytes) {
         Stage4HookStatus.editSessionSeen=true;
         Stage4HookStatus.targetNames="name="+name+", transformedName="+transformedName;
+        try {
         ClassNode node=new ClassNode(); new ClassReader(bytes).accept(node,ClassReader.SKIP_FRAMES); int matches=0;
         for(MethodNode method:node.methods) if("setBlocks".equals(method.name)&&LEGACY_DESC.equals(method.desc)) {
             matches++; LabelNode fallback=new LabelNode(); InsnList hook=new InsnList();
@@ -137,6 +147,20 @@ public final class EditSessionSetTransformer implements IClassTransformer {
         Stage4HookStatus.legacySetBlocksHookInstalled=true;
         OverdriveLog.info("Stage 4 legacy EditSession#setBlocks hook installed; not the active /set hook ({})",Stage4HookStatus.targetNames);
         return writer.toByteArray();
+        } catch(Throwable incompatible) {
+            return editSessionUnavailable(bytes,"verifier-safe EditSession transform failed: "+incompatible.toString());
+        }
+    }
+
+    private static byte[] editSessionUnavailable(byte[] bytes,String reason) {
+        Stage4HookStatus.targetMethodMatched=false;
+        Stage4HookStatus.legacySetBlocksHookInstalled=false;
+        CommandHookStatus.replaceHookInstalled=false;
+        CommandHookStatus.geometryHookInstalled=false;
+        CommandHookStatus.copyMoveHookInstalled=false;
+        CommandHookStatus.overlayHookInstalled=false;
+        OverdriveLog.warn("WorldEdit Overdrive: EditSession command hooks unavailable; using original bytecode ({})",reason);
+        return bytes;
     }
 
     private static void installEnhancedCommandHooks(ClassNode node){
@@ -223,7 +247,82 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     }
 
     private static final class SafeClassWriter extends ClassWriter {
+        private static final HierarchyResolver HIERARCHY=new HierarchyResolver();
         SafeClassWriter(int flags){super(flags);}
-        protected String getCommonSuperClass(String first,String second){return first.equals(second)?first:"java/lang/Object";}
+        protected String getCommonSuperClass(String first,String second){return HIERARCHY.commonSuperClass(first,second);}
+    }
+
+    /** Reads class headers from LaunchWrapper resources; it never loads or initializes a class. */
+    static final class HierarchyResolver {
+        private static final String OBJECT="java/lang/Object";
+        private static final String CLONEABLE="java/lang/Cloneable";
+        private static final String SERIALIZABLE="java/io/Serializable";
+        private final Map<String,ClassInfo> cache=new ConcurrentHashMap<String,ClassInfo>();
+
+        String commonSuperClass(String first,String second) {
+            if(first.equals(second))return first;
+            if(first.charAt(0)=='['||second.charAt(0)=='[')return commonArrayType(first,second);
+            if(isAssignableFrom(first,second))return first;
+            if(isAssignableFrom(second,first))return second;
+            if(info(first).isInterface||info(second).isInterface)return OBJECT;
+            String cursor=info(first).superName;
+            while(cursor!=null){if(isAssignableFrom(cursor,second))return cursor;cursor=info(cursor).superName;}
+            return OBJECT;
+        }
+
+        private String commonArrayType(String first,String second) {
+            if(first.charAt(0)!='['||second.charAt(0)!='[') {
+                String ordinary=first.charAt(0)=='['?second:first;
+                return OBJECT.equals(ordinary)||CLONEABLE.equals(ordinary)||SERIALIZABLE.equals(ordinary)?ordinary:OBJECT;
+            }
+            String fc=first.substring(1),sc=second.substring(1);
+            if(isPrimitiveDescriptor(fc)||isPrimitiveDescriptor(sc))return fc.equals(sc)?first:OBJECT;
+            String common=commonSuperClass(typeName(fc),typeName(sc));
+            return '['+(common.charAt(0)=='['?common:'L'+common+";");
+        }
+
+        private boolean isAssignableFrom(String target,String candidate) {
+            if(target.equals(candidate)||OBJECT.equals(target))return true;
+            if(candidate.charAt(0)=='[')return target.equals(CLONEABLE)||target.equals(SERIALIZABLE);
+            ClassInfo current=info(candidate);
+            if(implementsInterface(current,target))return true;
+            while(current.superName!=null){if(target.equals(current.superName))return true;current=info(current.superName);if(implementsInterface(current,target))return true;}
+            return false;
+        }
+
+        private boolean implementsInterface(ClassInfo type,String target) {
+            for(String iface:type.interfaces)if(target.equals(iface)||implementsInterface(info(iface),target))return true;
+            return false;
+        }
+
+        private ClassInfo info(String name) {
+            ClassInfo found=cache.get(name);if(found!=null)return found;
+            InputStream stream=open(name+".class");
+            if(stream==null)throw new IllegalStateException("class hierarchy resource unavailable: "+name);
+            try {
+                ClassReader reader=new ClassReader(stream);
+                ClassInfo loaded=new ClassInfo(reader.getSuperName(),(reader.getAccess()&Opcodes.ACC_INTERFACE)!=0,reader.getInterfaces());
+                ClassInfo raced=cache.putIfAbsent(name,loaded);return raced==null?loaded:raced;
+            } catch(IOException badClass) {throw new IllegalStateException("cannot read class hierarchy resource: "+name,badClass);}
+            finally {try{stream.close();}catch(IOException ignored){}}
+        }
+
+        private static InputStream open(String resource) {
+            List<ClassLoader> loaders=new ArrayList<ClassLoader>(3);
+            loaders.add(Launch.classLoader);
+            loaders.add(Thread.currentThread().getContextClassLoader());
+            loaders.add(EditSessionSetTransformer.class.getClassLoader());
+            for(ClassLoader loader:loaders)if(loader!=null){InputStream stream=loader.getResourceAsStream(resource);if(stream!=null)return stream;}
+            return ClassLoader.getSystemResourceAsStream(resource);
+        }
+
+        private static boolean isPrimitiveDescriptor(String type){return type.length()==1&&"ZCBSIFJD".indexOf(type.charAt(0))>=0;}
+        private static String typeName(String descriptor){return descriptor.charAt(0)=='L'?descriptor.substring(1,descriptor.length()-1):descriptor;}
+    }
+
+    private static final class ClassInfo {
+        final String superName;final boolean isInterface;final List<String> interfaces;
+        ClassInfo(String superName,boolean isInterface,String[] interfaces){this.superName=superName;this.isInterface=isInterface;
+            List<String> copy=new ArrayList<String>(interfaces.length);Collections.addAll(copy,interfaces);this.interfaces=Collections.unmodifiableList(copy);}
     }
 }

@@ -394,3 +394,18 @@ Changes are listed oldest to newest.
   center, stack, move, overlay, and naturalize hooks.
 - Production compilation was intentionally not run because this change request
   explicitly prohibits compiling binary files.
+
+## (b7c1486 Resolve LaunchWrapper frame hierarchies safely)
+
+- Replaced the object-only ASM common-superclass fallback with a cached class-header
+  hierarchy resolver that reads LaunchWrapper resources without loading, initializing,
+  or recursively transforming WorldEdit classes.
+- Preserved superclass, interface, and array assignability during whole-class frame
+  computation, including the `DownwardVisitor` to `RecursiveVisitor` merge in the
+  untouched Enhanced 6.3.0 `EditSession.fillXZ` implementation.
+- Made `EditSession` transformation fail open: hierarchy or frame-emission failure now
+  returns the original class bytes and marks every associated command hook unavailable.
+- Documented the pinned visitor relationship, safe resource-resolution strategy, and
+  verifier failure policy.
+- Production compilation and ASM binary verification were intentionally not run because
+  this change request explicitly prohibits compiling binary files.
