@@ -21,6 +21,8 @@ public final class PasteHookStatus {
     public static volatile boolean incrementalCommitSupported;
     public static volatile boolean topLevelCommitReturnedNull,commitCompletedNormally;
     public static volatile String commitOperationClass="none",activeCommitOperationClassBeforeResume="none",activeCommitOperationClassAfterResume="none";
+    public static volatile String maxCommitResumeStage="none",maxDownstreamMutationDestinationChunk="none";
+    public static volatile boolean maxCommitResumeBeganExpired;
     public static final AtomicLong pasteBridgeInvocations=new AtomicLong();
     public static final AtomicLong pasteAccelerated=new AtomicLong();
     public static final AtomicLong pasteFallbacks=new AtomicLong();
@@ -40,6 +42,8 @@ public final class PasteHookStatus {
     public static final AtomicLong submittedSinceLastDrain=new AtomicLong(),chunksSinceLastDrain=new AtomicLong(),flushCount=new AtomicLong(),lastFlushMillis=new AtomicLong(),totalFlushNanos=new AtomicLong(),maxFlushMillis=new AtomicLong(),maxSubmissionSliceMillis=new AtomicLong(),maxFinalFlushMillis=new AtomicLong(),finalFlushQueuedMutations=new AtomicLong(),finalFlushMillis=new AtomicLong();
     public static final AtomicLong finalFlushChunks=new AtomicLong(),uninterruptibleFlushOverBudgetCount=new AtomicLong();
     public static final AtomicLong incrementalCommitSlices=new AtomicLong(),commitResumeCalls=new AtomicLong(),maxCommitResumeMillis=new AtomicLong(),commitOperationRemaining=new AtomicLong(-1),finalSynchronousFlushCount=new AtomicLong();
+    public static final AtomicLong deadlineBudgetNanos=new AtomicLong(),deadlineRemainingNanosAtResumeEntry=new AtomicLong(),deadlineRemainingNanosAtFirstPlacement=new AtomicLong(-1),resumeElapsedNanos=new AtomicLong(),placementsThisResume=new AtomicLong(),deadlineExpiredAtEntry=new AtomicLong(),deadlineExpiredAfterFirstPlacement=new AtomicLong();
+    public static final AtomicLong commitStateElapsedWallMillis=new AtomicLong(),commitStateActiveServerMillis=new AtomicLong(),maxCommitResumePlacements=new AtomicLong(),maxCommitResumeChains=new AtomicLong(),maxDownstreamMutationNanos=new AtomicLong();
     public static final AtomicLong reorderStage1Remaining=new AtomicLong(-1),reorderStage2Remaining=new AtomicLong(-1),reorderStage3Remaining=new AtomicLong(-1);
     public static final AtomicLong blockMapPlacementsThisResume=new AtomicLong(),stage3ChainsThisResume=new AtomicLong(),deadlineYieldCount=new AtomicLong(),blockMapDeadlineYields=new AtomicLong(),stage3DeadlineYields=new AtomicLong();
     public static final AtomicLong snapshotProcessed=new AtomicLong(),snapshotTotalEstimate=new AtomicLong(),workerQueuedChunks=new AtomicLong(),workerCompletedChunks=new AtomicLong(),commitRemaining=new AtomicLong();

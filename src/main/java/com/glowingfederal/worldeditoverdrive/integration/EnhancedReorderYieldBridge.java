@@ -31,6 +31,10 @@ public final class EnhancedReorderYieldBridge {
     static void beginSlice(long deadline){DEADLINE.set(Long.valueOf(deadline));}
     static void endSlice(){DEADLINE.remove();}
     private static boolean expired(){Long deadline=DEADLINE.get();return deadline!=null&&System.nanoTime()>=deadline.longValue();}
+    private static void resumeEntry(){Long deadline=DEADLINE.get();long remaining=deadline==null?Long.MAX_VALUE:deadline.longValue()-System.nanoTime();PasteHookStatus.deadlineRemainingNanosAtResumeEntry.set(remaining);PasteHookStatus.deadlineRemainingNanosAtFirstPlacement.set(-1);if(remaining<=0)PasteHookStatus.deadlineExpiredAtEntry.incrementAndGet();}
+    private static void firstPlacementStarting(long placements){if(placements!=0)return;Long deadline=DEADLINE.get();PasteHookStatus.deadlineRemainingNanosAtFirstPlacement.set(deadline==null?Long.MAX_VALUE:deadline.longValue()-System.nanoTime());}
+    private static void firstPlacementFinished(long placements){if(placements!=1)return;Long deadline=DEADLINE.get();if(deadline!=null&&System.nanoTime()>=deadline.longValue()&&PasteHookStatus.deadlineRemainingNanosAtFirstPlacement.get()>0)PasteHookStatus.deadlineExpiredAfterFirstPlacement.incrementAndGet();}
+    private static void recordMutation(long started,BlockVector point){long elapsed=System.nanoTime()-started;long previous=PasteHookStatus.maxDownstreamMutationNanos.get();if(elapsed>previous&&PasteHookStatus.maxDownstreamMutationNanos.compareAndSet(previous,elapsed))PasteHookStatus.maxDownstreamMutationDestinationChunk="("+(point.getBlockX()>>4)+","+(point.getBlockZ()>>4)+")";}
 
     /** Captures Enhanced's concrete reorder collections before commit starts. */
     static void observeRemaining(EditSession session){
@@ -41,10 +45,11 @@ public final class EnhancedReorderYieldBridge {
     @SuppressWarnings("unchecked")
     public static Operation resumeBlockPlacer(Object operation)throws WorldEditException{
         try{
+            resumeEntry();
             Iterator<Map.Entry<BlockVector,BaseBlock>> iterator=(Iterator<Map.Entry<BlockVector,BaseBlock>>)field(operation,"iterator").get(operation);
             Extent extent=(Extent)field(operation,"extent").get(operation);
             long placements=0;PasteHookStatus.blockMapPlacementsThisResume.set(0);
-            do {if(!iterator.hasNext()){PasteHookStatus.blockMapPlacementsThisResume.set(placements);updateTotalRemaining();return null;}Map.Entry<BlockVector,BaseBlock> entry=iterator.next();if(extent.setBlock(entry.getKey(),entry.getValue()))committed(entry.getValue());placements++;decrementEarlyStage();} while(!expired());
+            do {if(!iterator.hasNext()){PasteHookStatus.blockMapPlacementsThisResume.set(placements);updateTotalRemaining();return null;}Map.Entry<BlockVector,BaseBlock> entry=iterator.next();firstPlacementStarting(placements);long mutationStarted=System.nanoTime();if(extent.setBlock(entry.getKey(),entry.getValue()))committed(entry.getValue());recordMutation(mutationStarted,entry.getKey());placements++;firstPlacementFinished(placements);decrementEarlyStage();} while(!expired());
             PasteHookStatus.blockMapPlacementsThisResume.set(placements);updateTotalRemaining();
             if(iterator.hasNext()){PasteHookStatus.deadlineYieldCount.incrementAndGet();PasteHookStatus.blockMapDeadlineYields.incrementAndGet();return (Operation)operation;}
             return null;
@@ -54,11 +59,12 @@ public final class EnhancedReorderYieldBridge {
     @SuppressWarnings("unchecked")
     public static Operation resumeStage3(Object operation)throws WorldEditException{
         try{
+            resumeEntry();
             PasteHookStatus.stage3ChainsThisResume.set(0);
             Object reorder=field(operation,"this$0").get(operation);Stage3State state;
             synchronized(STAGE3){state=STAGE3.get(operation);if(state==null){state=new Stage3State();Iterable<Map.Entry<BlockVector,BaseBlock>> entries=(Iterable<Map.Entry<BlockVector,BaseBlock>>)field(reorder,"stage3").get(reorder);for(Map.Entry<BlockVector,BaseBlock> entry:entries){state.blocks.add(entry.getKey());state.types.put(entry.getKey(),entry.getValue());}STAGE3.put(operation,state);}}
             Extent extent=(Extent)reorder.getClass().getMethod("getExtent").invoke(reorder);
-            long chains=0;do {if(state.blocks.isEmpty()){clear(reorder,"stage1");clear(reorder,"stage2");clear(reorder,"stage3");synchronized(STAGE3){STAGE3.remove(operation);}PasteHookStatus.reorderStage1Remaining.set(0);PasteHookStatus.reorderStage2Remaining.set(0);PasteHookStatus.reorderStage3Remaining.set(0);PasteHookStatus.stage3ChainsThisResume.set(chains);updateTotalRemaining();return null;}placeDependencyChain(extent,state);chains++;PasteHookStatus.reorderStage3Remaining.set(state.blocks.size());}while(!expired());
+            long chains=0;do {if(state.blocks.isEmpty()){clear(reorder,"stage1");clear(reorder,"stage2");clear(reorder,"stage3");synchronized(STAGE3){STAGE3.remove(operation);}PasteHookStatus.reorderStage1Remaining.set(0);PasteHookStatus.reorderStage2Remaining.set(0);PasteHookStatus.reorderStage3Remaining.set(0);PasteHookStatus.stage3ChainsThisResume.set(chains);updateTotalRemaining();return null;}firstPlacementStarting(chains);placeDependencyChain(extent,state);chains++;firstPlacementFinished(chains);PasteHookStatus.reorderStage3Remaining.set(state.blocks.size());}while(!expired());
             PasteHookStatus.stage3ChainsThisResume.set(chains);updateTotalRemaining();PasteHookStatus.deadlineYieldCount.incrementAndGet();PasteHookStatus.stage3DeadlineYields.incrementAndGet();return (Operation)operation;
         }catch(WorldEditException e){throw e;}catch(Exception e){throw new IllegalStateException("Enhanced Stage3Committer shape changed",e);}
     }
@@ -70,7 +76,7 @@ public final class EnhancedReorderYieldBridge {
             else if(type==BlockID.MINECART_TRACKS||type==BlockID.POWERED_RAIL||type==BlockID.DETECTOR_RAIL||type==BlockID.ACTIVATOR_RAIL){BlockVector lower=current.add(0,-1,0).toBlockVector();if(state.blocks.contains(lower)&&!walked.contains(lower))walked.addFirst(lower);}
             PlayerDirection attachment=BlockType.getAttachment(type,data);if(attachment==null)break;current=current.add(attachment.vector()).toBlockVector();if(!state.blocks.contains(current)||walked.contains(current))break;
         }
-        for(BlockVector point:walked){BaseBlock block=state.types.get(point);if(extent.setBlock(point,block))committed(block);state.blocks.remove(point);}
+        for(BlockVector point:walked){BaseBlock block=state.types.get(point);long mutationStarted=System.nanoTime();if(extent.setBlock(point,block))committed(block);recordMutation(mutationStarted,point);state.blocks.remove(point);}
     }
     private static void decrementEarlyStage(){if(PasteHookStatus.reorderStage1Remaining.get()>0)PasteHookStatus.reorderStage1Remaining.decrementAndGet();else if(PasteHookStatus.reorderStage2Remaining.get()>0)PasteHookStatus.reorderStage2Remaining.decrementAndGet();}
     private static void committed(BaseBlock block){PasteHookStatus.pasteCommittedBlocks.incrementAndGet();if(block.getNbtData()!=null)PasteHookStatus.pasteCommittedTiles.incrementAndGet();}
