@@ -349,3 +349,18 @@ Changes are listed oldest to newest.
 - Added server-thread destination-state filtering for ordinary blocks so unchanged ID/metadata states bypass `EditSession.setBlock`, while complete NBT blocks retain the native semantic path.
 - Added a runtime-derived operation support matrix to `/overdrive status` and documented the pinned Enhanced 6.3.0 command inventory, semantic categories, exact fallback reasons, and live validation procedure.
 - Kept replace, geometry, stack, move, neighborhood, expression, and world-generation commands intentionally vanilla until their bounded snapshots, ownership, pattern/mask capabilities, and ordering requirements can be preserved exactly.
+
+## (37b3992 Adaptive maximum-throughput mutation scheduling)
+
+- Replaced the rigid five-millisecond deferred-paste ceiling with a tick-headroom feedback
+  controller that backs off on late ticks, recovers progressively, permits safe bursts, and
+  retains a variance-based responsiveness reserve.
+- Kept adaptive non-preemptible mutation batching separate from the global time budget and
+  made its target follow the live budget instead of a fixed block rate.
+- Added a reusable mutation-owner lifecycle contract and the first-class incremental,
+  chunk-local, immutable destination snapshot representation with lossless `BaseBlock`/NBT
+  state and optional halo capture.
+- Added live budget, used-time, headroom, and maximum-accelerator-tick diagnostics to
+  `/overdrive status`, and documented the truthful hook matrix and scheduler behavior.
+- Production compilation was intentionally not run because this change request explicitly
+  prohibits compiling or adding binary files.
