@@ -459,3 +459,60 @@ fall through to Enhanced's native implementation. This is intentional: hook pres
 not represented as asynchronous safety, and Overdrive no longer claims those operations
 until dedicated incremental owners preserve their mask/pattern and (for stack/move)
 full-source-before-mutation ordering.
+
+## Bounded native queue pipeline
+
+The dedicated-server regression was traced to the deferred owner's lifecycle: bounded
+calls to `EditSession.setBlock` were retained across ticks, while the first meaningful
+`EditSession.flushQueue` occurred only after the last planned batch. Enhanced 6.3.0's
+`flushQueue` completes the EditSession operation, then sends its `FaweQueue` through
+`SetQueue.flush` on the main thread (or calls the queue's blocking `flush` on the other
+path). `LocalSession.remember` also calls `flushQueue` defensively. Consequently, the old
+finalization admitted virtually the complete paste to a single non-preemptible drain.
+
+The commit invariant is now **bounded native queue population and bounded drain**, not
+merely bounded `setBlock` submission. Each owner submits at most the adaptive native
+queue limit, touches no more than two destination chunks, immediately flushes that
+population, records the complete submission-plus-drain occupancy, and yields. The next
+tick cannot submit more work left over from a prior drain. A single large destination
+chunk is split at the same adaptive mutation boundary. The drain controller smooths
+observed nanoseconds per queued mutation, halves aggressively after an over-budget
+drain, grows by at most 25 percent after a cheap drain, and can never admit more than
+4,096 mutations. Finalization retains a defensive empty flush before entities and the
+flush inside `LocalSession.remember`; neither can contain accumulated block mutations.
+
+Planning is partitioned into bounded 8,192-source-cell tasks rather than two monolithic
+jobs. Workers independently perform air filtering and compact source-index production;
+the last worker combines those immutable results into stable destination-chunk batches.
+This makes worker count, total worker CPU time, average task time, and maximum concurrent
+workers observable. Live destination reads, `EditSession.setBlock`, native queue drain,
+entity creation, and history ownership remain server-only for Forge 1.7.10 safety.
+
+`/overdrive status` now separates source/destination capture, worker planning, mutation,
+queue drain, and finalization server time. It reports queue population, chunk population,
+flush count/last/average/maximum time, submission maximum, final-flush population/time,
+and the native queue/extent classes and enabled state. The formerly ambiguous
+`maxCommitTickMillis` label is now `maxOverdriveTickWorkMillis`: it measures only wall
+time inside `DeferredPasteManager.tick`, including a non-preemptible drain, rather than a
+whole Minecraft tick.
+
+## Architecture references audited
+
+- **Modern FAWE (vendored `ReferenceSRC/ModernFAWECoreSRC`)**: its queue extent and batch
+  processor architecture accumulates compact chunk-local changes, applies processors at
+  batch boundaries, and uses bounded parallel preparation rather than using a worker pool
+  solely as a command wrapper. Adapted concepts are immutable chunk grouping, many
+  bounded preparation units, explicit backpressure, and observable queue-drain ownership.
+  Direct modern chunk/state code was rejected because its block-state, lighting, packet,
+  Java, and chunk APIs are incompatible with numeric-ID Forge 1.7.10.
+- **Legacy FAWE / WorldEdit (this repository's core and forge1710 sources)**: `FaweQueue`,
+  `SetQueue`, and `ForgeChunk_All` confirm chunk-local numeric ID/metadata buffering and a
+  blocking apply boundary. The existing Overdrive raw chunk writer remains appropriate
+  for proven constant fills, but paste retains `EditSession` for masks, limits, history,
+  tile NBT, and entity semantics.
+- **Enhanced 6.3.0 (`ReferenceSRC/WorldeditEhancedCoreSRC` and pinned core)**:
+  `EditSession.flushQueue` is synchronous and non-preemptible once entered, selects
+  `SetQueue.flush` on the main-thread queue path, and closes the change set after the
+  drain. `LocalSession.remember` invokes it again. These exact semantics require limiting
+  the input population before every drain; moving the EditSession or live world to a
+  worker was rejected as unsafe.
