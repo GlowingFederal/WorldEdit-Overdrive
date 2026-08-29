@@ -68,7 +68,8 @@ public final class PasteOperationAdapter {
     }
     public Eligibility accelerationEligibility(){
         if(clipboard.getClass()!=BlockArrayClipboard.class)return Eligibility.defer("clipboard is not concrete BlockArrayClipboard");
-        if(destination.isQueueEnabled())return Eligibility.defer("EditSession reorder queue is enabled; bounded draining is not exposed by Enhanced 6.3.0");
+        if(destination.isQueueEnabled()&&!EnhancedReorderYieldBridge.isSupported())return Eligibility.defer("EditSession reorder queue is enabled but the Enhanced 6.3.0 incremental commit hooks are unavailable");
+        if(destination.isQueueEnabled()&&destination.hasFastMode())return Eligibility.defer("EditSession fast mode has an unbounded dirty-chunk finalizer that Enhanced 6.3.0 cannot resume incrementally");
         return Eligibility.accelerate();
     }
     public static final class Eligibility {public enum Kind{ACCELERATE,DEFER_VANILLA,VANILLA_FALLBACK} public final Kind kind;public final String reason;

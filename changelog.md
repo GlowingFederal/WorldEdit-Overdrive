@@ -449,3 +449,20 @@ Changes are listed oldest to newest.
   mutation/chunk correlation and non-preemptible budget-overrun reporting.
 - Runtime paste, undo, tile/NBT, transform, entity, and stall validation remains required;
   project compilation was intentionally not run by request.
+
+2026-08-29 03:15 — Incrementally commit Enhanced reorder queues
+
+- Allowed accelerated pastes to retain Enhanced 6.3.0's normal `MultiStageReorder`
+  buffering and drive the `EditSession.commit()` operation graph across server ticks.
+- Added runtime-gated, deadline-aware resume hooks for Enhanced's unbounded
+  `BlockMapEntryPlacer` and stage-three dependency committer. Stage one/two yield after
+  individual placements; stage three yields only between complete attachment chains.
+- Kept ordinary `flushQueue()` synchronous: without an Overdrive thread-local deadline
+  the transformed operations finish in one resume call with their original ordering.
+- Entities and session history finalization now wait for the retained commit operation;
+  reorder-enabled accelerated pastes make no final synchronous flush when supported.
+- Reorder plus fast mode remains on Enhanced's synchronous path because its whole-set
+  dirty-chunk finalizer has no resumable unit in 6.3.0.
+- Added reorder commit support, slice, resume duration, operation class/remaining, and
+  final synchronous flush diagnostics. Runtime validation remains required; compilation
+  was intentionally not run by request.
