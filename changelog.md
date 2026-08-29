@@ -364,3 +364,21 @@ Changes are listed oldest to newest.
   `/overdrive status`, and documented the truthful hook matrix and scheduler behavior.
 - Production compilation was intentionally not run because this change request explicitly
   prohibits compiling or adding binary files.
+
+## (e1dc241 Accelerate Enhanced region command families)
+
+- Installed exact Enhanced 6.3.0 `EditSession` entry hooks for `replaceBlocks`,
+  `makeCuboidWalls`, `makeCuboidFaces`, `center`, `stackCuboidRegion`,
+  `moveRegion`, `overlayCuboidBlocks`, and `naturalizeCuboidBlocks`.
+- Activated `//replace`, `//walls`, `//faces`/`//outline`, `//center`, `//stack`,
+  `//move`, `//overlay`, and `//naturalize` with native `EditSession.setBlock`
+  mutation, native history/limits, lossless `BaseBlock` tile NBT snapshots, and
+  source-first overlap safety for move.
+- Added runtime-derived family hook, bridge-invocation, accelerated-completion,
+  operation-type, fallback, and phase-timing diagnostics to `/overdrive status`.
+- Kept line/curve/hollow/smooth vanilla: their exact Enhanced voxelization,
+  topology, and staged Gaussian height semantics require dedicated immutable
+  planners. Regen remains vanilla world generation, deform remains an arbitrary
+  expression evaluator, and forest retains generator-owned randomness.
+- Production compilation was intentionally not run because this change request
+  explicitly prohibits compiling binary files.

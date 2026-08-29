@@ -127,12 +127,28 @@ public final class EditSessionSetTransformer implements IClassTransformer {
             hook.add(fallback); hook.add(new FrameNode(Opcodes.F_SAME1,0,null,1,new Object[]{"java/lang/Integer"})); hook.add(new InsnNode(Opcodes.POP));
             method.instructions.insertBefore(method.instructions.getFirst(),hook);
         }
+        installEnhancedCommandHooks(node);
         Stage4HookStatus.targetMethodMatched=matches==1;
         if(matches!=1) throw new IllegalStateException("Expected exactly one Enhanced setBlocks(Region,Pattern), found "+matches);
         ClassWriter writer=new ClassWriter(ClassWriter.COMPUTE_MAXS); node.accept(writer);
         Stage4HookStatus.legacySetBlocksHookInstalled=true;
         OverdriveLog.info("Stage 4 legacy EditSession#setBlocks hook installed; not the active /set hook ({})",Stage4HookStatus.targetNames);
         return writer.toByteArray();
+    }
+
+    private static void installEnhancedCommandHooks(ClassNode node){
+        int replace=0,geometry=0,copy=0,overlay=0;
+        for(MethodNode m:node.methods){String bridge=null,desc=null;int[] vars=null;int kind=-1;
+            if("replaceBlocks".equals(m.name)&&"(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/masks/Mask;Lcom/sk89q/worldedit/patterns/Pattern;)I".equals(m.desc)){bridge="replace";desc="(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/masks/Mask;Lcom/sk89q/worldedit/patterns/Pattern;)Ljava/lang/Integer;";vars=new int[]{1,2,3};replace++;}
+            else if(("makeCuboidWalls".equals(m.name)||"makeCuboidFaces".equals(m.name)||"center".equals(m.name))&&"(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)I".equals(m.desc)){bridge="geometry";desc="(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;I)Ljava/lang/Integer;";vars=new int[]{1,2};kind="makeCuboidWalls".equals(m.name)?0:"makeCuboidFaces".equals(m.name)?1:2;geometry++;}
+            else if("overlayCuboidBlocks".equals(m.name)&&"(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)I".equals(m.desc)){bridge="overlay";desc="(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)Ljava/lang/Integer;";vars=new int[]{1,2};overlay++;}
+            else if("naturalizeCuboidBlocks".equals(m.name)&&"(Lcom/sk89q/worldedit/regions/Region;)I".equals(m.desc)){bridge="naturalize";desc="(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;)Ljava/lang/Integer;";vars=new int[]{1};overlay++;}
+            else if("stackCuboidRegion".equals(m.name)&&"(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/Vector;IZ)I".equals(m.desc)){bridge="stack";desc="(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/Vector;IZ)Ljava/lang/Integer;";vars=new int[]{1,2,3,4};copy++;}
+            else if("moveRegion".equals(m.name)&&"(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/Vector;IZLcom/sk89q/worldedit/blocks/BaseBlock;)I".equals(m.desc)){bridge="move";desc="(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/Vector;IZLcom/sk89q/worldedit/blocks/BaseBlock;)Ljava/lang/Integer;";vars=new int[]{1,2,3,4,5};copy++;}
+            if(bridge==null)continue;InsnList h=new InsnList();h.add(new VarInsnNode(Opcodes.ALOAD,0));for(int v:vars)h.add(new VarInsnNode((v==3&&(bridge.equals("stack")||bridge.equals("move")))?Opcodes.ILOAD:(v==4&&(bridge.equals("stack")||bridge.equals("move")))?Opcodes.ILOAD:Opcodes.ALOAD,v));if(kind>=0)h.add(new InsnNode(Opcodes.ICONST_0+kind));h.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/EnhancedCommandBridge",bridge,desc,false));h.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL,"java/lang/Integer","intValue","()I",false));h.add(new InsnNode(Opcodes.IRETURN));m.instructions.insert(h);
+        }
+        CommandHookStatus.replaceHookInstalled=replace==1;CommandHookStatus.geometryHookInstalled=geometry==3;CommandHookStatus.copyMoveHookInstalled=copy==2;CommandHookStatus.overlayHookInstalled=overlay==2;
+        OverdriveLog.info("Enhanced command hooks replace={} geometry={} copyMove={} overlay={}",replace,geometry,copy,overlay);
     }
 
     private byte[] transformCommand(String name,String transformedName,byte[] bytes) {

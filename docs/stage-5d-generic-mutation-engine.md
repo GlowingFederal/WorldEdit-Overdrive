@@ -28,26 +28,25 @@ for this classification.
 | Command | Enhanced implementation | Model | Runtime support |
 | --- | --- | --- | --- |
 | `//set` | `EditSession.setBlocks(region, pattern)` | FILL | **ACCELERATED** for the existing exact constant-pattern capability; otherwise vanilla |
-| `//replace` | `replaceBlocks(region, Mask, Pattern)`; omitted mask becomes `ExistingBlockMask` | FILTER | **VANILLA** pending bounded destination snapshots and exact mask/pattern adapters |
-| `//walls` | `makeCuboidWalls(region, Pattern)` | GEOMETRY | **VANILLA** pending command ownership adapter |
-| `//faces`, `//outline` | aliases sharing `makeCuboidFaces(region, Pattern)` | GEOMETRY | **VANILLA** pending command ownership adapter |
-| `//overlay` | `overlayCuboidBlocks(region, Pattern)` | GEOMETRY/FILTER | **VANILLA** pending immutable column snapshots |
-| `//naturalize` | `naturalizeCuboidBlocks(region)` | FILTER/column topology | **VANILLA** pending immutable column snapshots |
-| `//stack` | `stackCuboidRegion(region, direction, count, copyAir)` | COPY | **VANILLA**; source-once reuse and selection-shift feedback must be preserved |
-| `//move` | `moveRegion(region, direction, count, true, leaveBlock)` | COPY/MOVE | **VANILLA**; overlap, source clearing, and selection shift require constrained plans |
+| `//replace` | `replaceBlocks(region, Mask, Pattern)`; omitted mask becomes `ExistingBlockMask` | FILTER | **ACTIVE**; Enhanced masks and patterns execute against the fully captured pre-mutation state |
+| `//walls` | `makeCuboidWalls(region, Pattern)` | GEOMETRY | **ACTIVE** for Enhanced's cuboid command |
+| `//faces`, `//outline` | aliases sharing `makeCuboidFaces(region, Pattern)` | GEOMETRY | **ACTIVE** for Enhanced's cuboid command |
+| `//center` | `center(region, Pattern)` | GEOMETRY | **ACTIVE** with Enhanced's center bounds |
+| `//overlay` | `overlayCuboidBlocks(region, Pattern)` | GEOMETRY/FILTER | **ACTIVE** with one immutable top-down column capture |
+| `//naturalize` | `naturalizeCuboidBlocks(region)` | FILTER/column topology | **ACTIVE** with the Enhanced grass/dirt/stone depth rule |
+| `//stack` | `stackCuboidRegion(region, direction, count, copyAir)` | COPY | **ACTIVE**; one lossless `BaseBlock`/NBT source capture is reused for every repetition |
+| `//move` | `moveRegion(region, direction, count, true, leaveBlock)` | COPY/MOVE | **ACTIVE**; complete source capture before clearing preserves overlapping moves and NBT |
 | `//smooth` | `HeightMap` plus Gaussian `HeightMapFilter`, repeated | NEIGHBORHOOD | **VANILLA** pending a halo height snapshot and staged iterations |
 | `//deform` | `deformRegion` with a user expression | CUSTOM/COPY | **VANILLA**; arbitrary expression semantics are not worker-safe |
 | `//hollow` | `hollowOutRegion` with Manhattan thickness and pattern | NEIGHBORHOOD/GEOMETRY | **VANILLA** pending topology snapshot and pattern capability |
 | `//regen` | temporarily removes the session mask and calls `World.regenerate` | WORLDGEN | **VANILLA** intentionally; generator/chunk semantics do not belong in the mutation planner |
 | `//line`, `//curve` | `drawLine`/`drawSpline` with thickness and shell mode | GEOMETRY | **VANILLA** pending deterministic geometry adapter |
-| `//center` | `EditSession.center(region, pattern)` | GEOMETRY | **VANILLA** pending pattern adapter |
 | `//forest` | `makeForest` with random generator behavior | WORLDGEN/CUSTOM | **VANILLA** because exact generator randomness is not captured |
 
-Unknown Pattern, Mask, RegionFunction, operation subclasses, or extent graphs
-remain invocation-local vanilla fallbacks. This avoids permission, edit limit,
-mask, random ordering, and extent-chain bypass. `/overdrive status` derives the
-ACTIVE values for set and paste from their actually installed runtime hooks and
-labels the audited, unhooked families VANILLA.
+The newly hooked methods continue to invoke Enhanced `Mask` and legacy `Pattern`
+contracts and mutate through the originating `EditSession`; specialized commands
+outside these exact descriptors remain vanilla. `/overdrive status` derives all
+ACTIVE values from the corresponding installed runtime hooks.
 
 ## Runtime validation
 
@@ -57,8 +56,8 @@ Enhanced and Overdrive. Run `//set stone`, `//undo`, a full-feature large
 `//paste`, `//paste -a`, and `//undo`; after each operation inspect
 `/overdrive status`. Also run `//replace stone dirt`, `//walls stone`,
 `//faces stone`, `//overlay grass`, `//stack 5`, `//move 10`, and their undo
-commands to confirm the matrix truthfully reports VANILLA until those adapters
-are installed. No speedup is claimed without those live measurements.
+commands and confirm the matching bridge and accelerated counters increase before
+undoing each operation. No speedup is claimed without those live measurements.
 
 ## Adaptive maximum-throughput scheduler
 
