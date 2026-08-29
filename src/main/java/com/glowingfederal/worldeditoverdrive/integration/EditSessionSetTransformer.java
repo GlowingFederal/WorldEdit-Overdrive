@@ -32,6 +32,8 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     private static final String COMMAND_TARGET="com.sk89q.worldedit.command.composition.SelectionCommand";
     private static final String PASTE_TARGET="com.sk89q.worldedit.function.operation.ForwardExtentCopy";
     private static final String PASTE_COMMAND_TARGET="com.sk89q.worldedit.command.ClipboardCommands";
+    private static final String BLOCK_PLACER_TARGET="com.sk89q.worldedit.function.operation.BlockMapEntryPlacer";
+    private static final String STAGE3_TARGET="com.sk89q.worldedit.extent.reorder.MultiStageReorder$Stage3Committer";
     private static final String PASTE_DESC="(Lcom/sk89q/worldedit/entity/Player;Lcom/sk89q/worldedit/LocalSession;Lcom/sk89q/worldedit/EditSession;ZZZ)V";
     private static final String LEGACY_DESC="(Lcom/sk89q/worldedit/regions/Region;Lcom/sk89q/worldedit/patterns/Pattern;)I";
     private static final String CALL_DESC="(Lcom/sk89q/worldedit/util/command/argument/CommandArgs;Lcom/sk89q/minecraft/util/commands/CommandLocals;)Lcom/sk89q/worldedit/function/operation/Operation;";
@@ -40,11 +42,30 @@ public final class EditSessionSetTransformer implements IClassTransformer {
     public EditSessionSetTransformer(){Stage4HookStatus.transformerRegistered=true;}
 
     public byte[] transform(String name,String transformedName,byte[] bytes) {
+        String normalized=normalize(transformedName==null?name:transformedName);
+        if(BLOCK_PLACER_TARGET.equals(normalized))return transformCommitResume(bytes,false);
+        if(STAGE3_TARGET.equals(normalized))return transformCommitResume(bytes,true);
         if(isPasteTarget(name,transformedName))return inspectPasteTarget(bytes);
         if(PASTE_COMMAND_TARGET.equals(normalize(transformedName))||PASTE_COMMAND_TARGET.equals(normalize(name)))return transformPasteCommand(bytes);
         if(COMMAND_TARGET.equals(transformedName))return transformCommand(name,transformedName,bytes);
         if(LEGACY_TARGET.equals(transformedName))return transformLegacy(name,transformedName,bytes);
         return bytes;
+    }
+
+    private byte[] transformCommitResume(byte[] bytes,boolean stage3){
+        try{
+            ClassNode node=new ClassNode();new ClassReader(bytes).accept(node,ClassReader.SKIP_FRAMES);MethodNode target=null;int matches=0;
+            String desc="(Lcom/sk89q/worldedit/function/operation/RunContext;)Lcom/sk89q/worldedit/function/operation/Operation;";
+            for(MethodNode method:node.methods)if("resume".equals(method.name)&&desc.equals(method.desc)){target=method;matches++;}
+            if(matches!=1)throw new IllegalStateException("expected one resume method, found "+matches);
+            target.instructions.clear();target.tryCatchBlocks.clear();target.localVariables=null;
+            target.instructions.add(new VarInsnNode(Opcodes.ALOAD,0));
+            target.instructions.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/EnhancedReorderYieldBridge",stage3?"resumeStage3":"resumeBlockPlacer","(Ljava/lang/Object;)Lcom/sk89q/worldedit/function/operation/Operation;",false));
+            target.instructions.add(new InsnNode(Opcodes.ARETURN));
+            ClassWriter writer=new SafeClassWriter(ClassWriter.COMPUTE_FRAMES|ClassWriter.COMPUTE_MAXS);node.accept(writer);
+            if(stage3)EnhancedReorderYieldBridge.stage3HookInstalled();else EnhancedReorderYieldBridge.blockPlacerHookInstalled();
+            return writer.toByteArray();
+        }catch(Throwable failure){OverdriveLog.warn("Enhanced reorder incremental hook unavailable for {}: {}",stage3?STAGE3_TARGET:BLOCK_PLACER_TARGET,failure.toString());return bytes;}
     }
 
     private byte[] transformPasteCommand(byte[] bytes) {

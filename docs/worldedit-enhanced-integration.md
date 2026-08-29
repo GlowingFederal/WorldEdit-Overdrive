@@ -57,3 +57,60 @@ This baseline intentionally does not port Forge chunk writers, FAWE queues,
 history, asynchronous editing, or WorldEdit overrides. Those features require
 separate compatibility work against Enhanced after the clean addon can build
 and start successfully.
+
+## Reorder-enabled paste commit lifecycle
+
+Enhanced 6.3.0's `EditSession.flushQueue()` is only a synchronous convenience
+method: it passes `commit()` to `Operations.completeBlindly()`. `commit()` starts
+at the outer `bypassNone` extent. Each `AbstractDelegateExtent.commit()` places
+its own `commitBefore()` operation before its delegate operation in an
+`OperationQueue`. `Operations.complete()` and `completeBlindly()` repeatedly call
+`Operation.resume()` until it returns `null`; the latter only translates a
+`WorldEditException` to a runtime exception.
+
+The reorder node is `MultiStageReorder`. Its commit operation is an
+`OperationQueue` containing, in order:
+
+1. `BlockMapEntryPlacer` over the concatenated stage-one and stage-two iterators;
+2. the private `MultiStageReorder.Stage3Committer`, which topologically walks
+   attachments and places each complete dependency chain; and
+3. downstream delegate commits, notably `FastModeExtent.commitBefore()`, which
+   calls `world.fixAfterFastMode(dirtyChunks)` when fast mode collected dirty
+   chunks.
+
+The stock `BlockMapEntryPlacer.resume()` traverses its entire iterator, and the
+stock stage-three `resume()` traverses its entire set. Therefore merely retaining
+the top-level `OperationQueue` does **not** bound a server tick. Overdrive's
+pinned-6.3.0 LaunchWrapper transform redirects only those two concrete resume
+methods to deadline-aware equivalents. Stage one/two retain Enhanced's iterator
+and may yield after one placement. Stage three retains the exact remaining set
+and block map and may yield only after a complete attachment chain has been
+placed and removed. That boundary is safe: no dependency chain is split, the
+same `HashSet` selection and attachment walk determine order, and all writes
+still pass through Enhanced's downstream extent (including NBT and world update
+handling).
+
+The deadline is a server-thread `ThreadLocal` installed only while an
+Overdrive-owned paste owner resumes its retained `EditSession.commit()` result.
+With no deadline, as in every ordinary `flushQueue()` call, both transformed
+operations continue to exhaustion in the same resume invocation. Consequently
+Enhanced's public synchronous flushing contract is unchanged.
+
+An accelerated reorder-enabled paste first submits its bounded `setBlock()`
+calls through the normal `EditSession`, allowing masks, limits, history, block
+bags, and reorder stages to operate normally. Once submission ends, the owner
+obtains `EditSession.commit()` exactly once and resumes it on the server
+coordinator across ticks. Entity creation starts only after that operation
+returns `null`; selection feedback and `LocalSession.remember()` follow entity
+creation. The supported reorder path never calls `flushQueue()`. If either
+concrete resume transform is unavailable, reorder-enabled pastes fail open to
+Enhanced's original command path before Overdrive takes ownership.
+
+The fast-mode dirty-chunk finalizer is one unbounded downstream resume step because
+Enhanced exposes `fixAfterFastMode(Set)` only as a whole-set operation. It is not
+reimplemented or moved off-thread, so a reorder-enabled session with fast mode
+enabled fails open before Overdrive takes ownership. Runtime diagnostics report reorder state,
+hook support, incremental slices, resume calls and maximum duration, top-level
+commit class, observable stage-three remaining entries, and final synchronous
+flush count. Runtime profiling is still required to measure the world-specific
+cost of the downstream dirty-chunk finalizer.
