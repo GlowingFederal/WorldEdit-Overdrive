@@ -6,6 +6,8 @@ import com.glowingfederal.worldeditoverdrive.integration.OverdriveEditSummary;
 import com.glowingfederal.worldeditoverdrive.integration.OverdriveSummaries;
 import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
 import com.glowingfederal.worldeditoverdrive.integration.PasteHookStatus;
+import com.glowingfederal.worldeditoverdrive.integration.DeferredPasteManager;
+import com.glowingfederal.worldeditoverdrive.execution.AdaptiveServerBudget;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
 import java.util.Arrays;
@@ -43,6 +45,8 @@ public final class OverdriveCommand extends CommandBase {
         send(sender,"pastePlanningActive="+PasteHookStatus.pastePlanningActive.get()+" pasteCommitActive="+PasteHookStatus.pasteCommitActive.get()+" pastePreparedBlocks="+PasteHookStatus.pastePreparedBlocks.get()+" pastePlannedBlocks="+PasteHookStatus.pastePlannedBlocks.get()+" pasteSubmittedBlocks="+PasteHookStatus.pasteSubmittedBlocks.get()+" pasteCommittedBlocks="+PasteHookStatus.pasteCommittedBlocks.get());
         send(sender,"pastePreparedTiles="+PasteHookStatus.pastePreparedTiles.get()+" pasteCommittedTiles="+PasteHookStatus.pasteCommittedTiles.get()+" pastePreparedEntities="+PasteHookStatus.pastePreparedEntities.get()+" pasteCommittedEntities="+PasteHookStatus.pasteCommittedEntities.get()+" pasteTransformedBlocks="+PasteHookStatus.pasteTransformedBlocks.get()+" pasteTransform="+PasteHookStatus.lastPasteTransform+" pasteIgnoreAir="+PasteHookStatus.lastPasteIgnoreAir);
         send(sender,"lastPastePrepareMillis="+PasteHookStatus.lastPastePrepareMillis.get()+" lastPastePlanMillis="+PasteHookStatus.lastPastePlanMillis.get()+" lastPasteCommitMillis="+PasteHookStatus.lastPasteCommitMillis.get());
+        AdaptiveServerBudget budget=DeferredPasteManager.budget();
+        send(sender,"commitBudgetMillis="+OverdriveEditSummary.ms(budget.budgetNanos())+" commitUsedMillis="+OverdriveEditSummary.ms(budget.lastUsedNanos())+" serverHeadroomMillis="+OverdriveEditSummary.ms(budget.headroomNanos())+" maxCommitTickMillis="+OverdriveEditSummary.ms(budget.maximumUsedNanos()));
         send(sender,"lastPasteGraphDiagnostic="+PasteHookStatus.lastPasteGraphDiagnostic);
         send(sender,"pasteRuntimeShape="+PasteHookStatus.runtimeShape()+" forwardExtentCopySeen="+PasteHookStatus.forwardExtentCopySeen()+" pasteRuntimeShapeCompatible="+PasteHookStatus.runtimeShapeCompatible()+" pasteBytecodeModified="+PasteHookStatus.pasteBytecodeModified);
         send(sender,"pasteHookReason="+PasteHookStatus.hookReason);

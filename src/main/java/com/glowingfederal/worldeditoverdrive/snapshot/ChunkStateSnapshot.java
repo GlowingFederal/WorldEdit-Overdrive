@@ -1,0 +1,4 @@
+package com.glowingfederal.worldeditoverdrive.snapshot;
+import com.sk89q.worldedit.blocks.BaseBlock;import java.util.Collections;import java.util.HashMap;import java.util.Map;
+/** Lossless sparse immutable states for one destination chunk. */
+public final class ChunkStateSnapshot {private final Map<Integer,BaseBlock> states;private ChunkStateSnapshot(Map<Integer,BaseBlock> states){this.states=Collections.unmodifiableMap(states);}BaseBlock get(int x,int y,int z){BaseBlock b=states.get(Integer.valueOf(index(x,y,z)));return b==null?null:new BaseBlock(b);}private static int index(int x,int y,int z){return(y<<8)|((z&15)<<4)|(x&15);}static final class Builder{private final Map<Integer,BaseBlock> states=new HashMap<Integer,BaseBlock>();void put(int x,int y,int z,BaseBlock block){states.put(Integer.valueOf(index(x,y,z)),new BaseBlock(block));}ChunkStateSnapshot build(){return new ChunkStateSnapshot(new HashMap<Integer,BaseBlock>(states));}}}

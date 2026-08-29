@@ -59,3 +59,26 @@ Enhanced and Overdrive. Run `//set stone`, `//undo`, a full-feature large
 `//faces stone`, `//overlay grass`, `//stack 5`, `//move 10`, and their undo
 commands to confirm the matrix truthfully reports VANILLA until those adapters
 are installed. No speedup is claimed without those live measurements.
+
+## Adaptive maximum-throughput scheduler
+
+The fixed five-millisecond commit ceiling has been replaced by one feedback-controlled
+server-thread budget. The controller observes normal START-to-END tick cost, keeps an
+exponentially weighted cost and variance reserve, contracts immediately on late/severely
+late ticks, and progressively recovers up to available safe headroom. It controls elapsed
+time rather than blocks per tick. The existing mutation batch learner remains independent:
+it limits the predicted non-preemptible queue drain while the controller decides how many
+drains fit this tick. One owner receives all available capacity; multiple owners rotate
+fairly over the same global capacity. No sleeps, cooldowns, or command-specific rates exist.
+
+`/overdrive status` exposes the current budget, actual accelerator use, estimated server
+headroom, and maximum observed accelerator tick. The bounded destination snapshot
+foundation is now available as an incremental, chunk-local, immutable, lossless view with
+optional halo capture; adapters must advance its capture cursor under this same deadline.
+
+The broad command-family matrix above remains intentionally truthful: this source-only
+increment does not label an adapter ACTIVE until its exact Enhanced command hook is
+installed. The adaptive controller currently drives the installed deferred paste owner;
+the synchronous legacy set path has no artificial per-tick throttle. Future command owners
+implement `MutationOperationOwner` and therefore share the same scheduler rather than
+creating command-local commit loops.
