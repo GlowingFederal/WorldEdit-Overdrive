@@ -1,5 +1,10 @@
 # WorldEdit Overdrive
 
+Enhanced 6.3.0 runtime acceleration now covers `//set`, `//paste`, `//replace`,
+`//walls`, `//faces`/`//outline`, `//center`, `//stack`, `//move`, `//overlay`,
+and `//naturalize`. `/overdrive status` derives each ACTIVE label from the exact
+EditSession hook installation and exposes per-family bridge and completion counters.
+
 The Stage 5A backend now includes a generalized, tick-budgeted phased operation
 plan for future reorder-aware operations. See
 [`docs/stage-5a-phased-engine.md`](docs/stage-5a-phased-engine.md). Clipboard
