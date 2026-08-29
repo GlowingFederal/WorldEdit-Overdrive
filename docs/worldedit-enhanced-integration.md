@@ -127,3 +127,23 @@ stage counts at zero before it creates entities, remembers the edit, or reports 
 A mismatch is a fail-closed acceleration error because replaying vanilla after partial
 mutation would be unsafe. Detailed paste counters are reset on admission and status
 labels identify them as last-paste values.
+
+## Commit deadline and pacing diagnostics
+
+The deferred manager creates the hard deadline once at the start of its server-tick
+callback, after the normal server tick has been observed. Submission, capture, and any
+earlier owner scheduled in that callback therefore consume the same hard tick allowance.
+A retained commit installs that absolute `System.nanoTime()` deadline in the reorder
+bridge immediately before resuming the operation graph. Both transformed child operations
+use `System.nanoTime()` nanoseconds and check after each stage-one/two placement or complete
+stage-three attachment chain. The top-level driver may resume again in the same tick only
+while that same hard deadline remains; it never grants a new full allowance to an inner
+resume.
+
+Status output distinguishes the remaining budget at commit entry and first placement,
+active time spent in retained reorder resumes, and elapsed commit-state wall time (which
+includes waits between server ticks). It also identifies the longest resume's operation
+stage and work counts, and the slowest observed individual downstream `setBlock` call and
+chunk. Because a downstream mutation and a complete stage-three dependency chain are
+indivisible cooperative units, either may overshoot the deadline; the diagnostics describe
+such an overshoot rather than asserting a hard per-resume latency guarantee.

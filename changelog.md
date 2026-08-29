@@ -494,3 +494,10 @@ Changes are listed oldest to newest.
   now follows observable downstream reorder work after block submission finishes.
 - Source inspection and diff checks were performed without compiling or running the project.
   Runtime validation of repeated bounded resumes and eventual large-paste completion remains required.
+
+2026-08-29 05:00 — Diagnose incremental commit deadline utilization
+
+- Corrected commit active-server accounting to include retained reorder child `resume()` calls; the previous counter covered submission work but omitted the transformed reorder traversal that occurs in the explicit commit state.
+- Added nanosecond deadline budget, resume-entry/first-placement headroom, resume duration and work-unit diagnostics, including expired-at-entry and first-mutation overshoot counts.
+- Added commit-state elapsed versus active timing and maximum-resume stage/work/entry-state diagnostics. Downstream mutation timing now records the slowest individual `setBlock` duration and its destination chunk without per-block logging.
+- Preserved the existing hard tick deadline and repeated same-tick resume loop. No budget constants or continuation lifecycle semantics changed; runtime validation is still required to determine whether pacing is deadline starvation, full budget consumption, or indivisible downstream mutation cost.
