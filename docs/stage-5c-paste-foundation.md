@@ -1,5 +1,34 @@
 # Stage 5C live deferred paste interception
 
+## Single-boundary flush architecture
+
+Enhanced 6.3.0 `EditSession.flushQueue()` is not a bounded native-queue drain. Its
+entire implementation is `Operations.completeBlindly(commit())`, and
+`EditSession.commit()` delegates to the complete `bypassNone` extent chain.
+`AbstractDelegateExtent.commit()` recursively collects every delegate's commit
+operation. In particular, an enabled `MultiStageReorder` exposes all three reorder
+stages, while `FastModeExtent` exposes its accumulated dirty-chunk finalizer. Neither
+the `EditSession` API nor the operation API offers a depth, a bounded resume count, or
+a chunk-specific drain. Consequently mutation count since the prior call cannot bound
+a flush, and the call itself is non-preemptible once `completeBlindly` starts.
+
+Accelerated paste now requires `EditSession.isQueueEnabled()` to be false. In that
+mode each `setBlock()` synchronously traverses the normal mask, limit, history,
+validation, chunk-loading, quirk/survival, and world extents on the server thread;
+there is no reorder work that needs an intermediate flush. Overdrive therefore owns
+chunk-local scheduling (at most two chunks and the adaptive wall-time deadline per
+slice) and calls `flushQueue()` exactly once at the block/entity semantic boundary.
+That final call is retained for WorldEdit finalization, including fast-mode/custom
+platform effects. Its duration is explicitly reported as non-preemptible when it
+exceeds the live budget. Sessions with reorder enabled fall back rather than silently
+changing placement ordering or attempting to inspect private queue state.
+
+Status now distinguishes source cells and air/ignore-air filtering from destination
+matches and actual planned/submitted/committed mutations. Destination matches reduce
+the actual plan as they are classified on the server thread, so `commitRemaining` is
+zero after successful block completion. The sole final flush reports the total
+mutations and distinct chunks associated with that semantic boundary.
+
 The runtime shape gate remains strict, and this increment installs the first active command-scoped paste interception. It defers Enhanced's original operation without claiming accelerated planning.
 
 ## Verified source path, LaunchWrapper identity, and runtime gate

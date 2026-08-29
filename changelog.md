@@ -434,3 +434,18 @@ Changes are listed oldest to newest.
   legacy FAWE/WorldEdit, and pinned Enhanced architecture audit.
 - Production compilation was intentionally not run because the user explicitly prohibits
   compiling or adding binary files.
+
+2026-08-29 02:33 — Remove pathological intermediate paste flushes
+
+- Traced Enhanced 6.3.0 flushing through `EditSession.commit()` and the complete extent
+  chain: it is an unbounded synchronous operation, not a mutation-count queue primitive.
+- Required the reorder queue to be disabled for acceleration, retained every block write
+  through the normal server-thread `EditSession` path, and reduced hundreds of
+  intermediate flushes to one WorldEdit semantic-boundary flush.
+- Removed diagnostics that called nonexistent queue/extent accessors and explicitly
+  reports that Enhanced does not expose those internals through its API.
+- Split clipboard cells, source air, ignore-air filtering, destination matches, actual
+  planned/submitted/committed mutations, and remaining mutations; added final-flush
+  mutation/chunk correlation and non-preemptible budget-overrun reporting.
+- Runtime paste, undo, tile/NBT, transform, entity, and stall validation remains required;
+  project compilation was intentionally not run by request.
