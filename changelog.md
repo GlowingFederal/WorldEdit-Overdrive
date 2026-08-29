@@ -418,3 +418,19 @@ Changes are listed oldest to newest.
 - Downgraded synchronous set, replace, geometry, overlay, naturalize, stack, and move adapters to truthful `HOOKED` status and native fallthrough rather than claiming them as asynchronously safe.
 - Documented the synchronous-loop audit, ordering constraints, chunk-load behavior, finalization limitation, and deferred lifecycle.
 - Production compilation was intentionally not run because the user explicitly prohibits compiling or adding binary files.
+
+## (14356e1 Bound asynchronous paste queue drains)
+
+- Replaced cross-tick native queue accumulation with an invariant that every adaptive,
+  at-most-two-chunk mutation batch is synchronously drained before another batch may be
+  submitted by that paste owner.
+- Added a drain-time feedback controller with conservative growth, aggressive overload
+  contraction, a 4,096-mutation emergency ceiling, and regression tests for its bounds.
+- Split immutable air filtering and index preparation into bounded 8,192-cell worker
+  tasks, preserving server-only live world reads, mutation, entity creation, and history.
+- Added stage-specific server/worker timing, native queue depth and implementation,
+  flush/final-flush, concurrency, and unambiguous Overdrive-owned tick diagnostics.
+- Documented the exact Enhanced 6.3.0 flush/remember lifecycle and the modern FAWE,
+  legacy FAWE/WorldEdit, and pinned Enhanced architecture audit.
+- Production compilation was intentionally not run because the user explicitly prohibits
+  compiling or adding binary files.
