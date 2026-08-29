@@ -413,3 +413,49 @@ After each operation inspect `/overdrive status`, then verify `//undo` (and
 orphans or duplicates. A successful complex operation increments
 `pasteAccelerated` once, leaves acceleration fallbacks unchanged, reports
 positive tile/entity commits, and keeps `pasteDeferredFailed=0`.
+
+## Tick-bounded capture lifecycle
+
+The accelerated standard paste path now claims only immutable graph references, bounds,
+and a conservative memory reservation in the command hook. It does not enumerate the
+clipboard or entities before returning. The server-tick owner retains primitive `x/y/z`,
+ID, and metadata arrays plus a sparse `BaseBlock` map for NBT or specialized blocks. A
+primitive linear cursor maps each index to `x/z/y` coordinates and resumes without
+restarting traversal.
+
+The same adaptive global deadline used for commit now bounds clipboard block capture and
+entity transformation. When capture is complete, one bounded worker submission performs
+air filtering and chunk-local ordering without accessing the live world. Commit checks the
+deadline between mutations and crosses at most two distinct destination chunks per owner
+slice, limiting synchronous chunk-load pressure. Entity creation is capped at sixteen per
+slice. Native `EditSession` mutation and history remain on the server thread. Queue flush
+is deliberately confined to finalization because Enhanced 6.3.0 does not expose a
+preemptible partial-flush API; its duration is included in maximum-slice and wall metrics.
+
+`/overdrive status` exposes the active phase, capture progress, worker task counts, commit
+remainder, command interception time, phase wall/active time, total wall time, and maximum
+server slice. Wall time measures elapsed lifecycle latency; active time measures actual
+Overdrive occupancy on the server thread.
+
+## Command interception audit
+
+The previous command bridges performed the following work before returning:
+
+* paste captured every transformed clipboard block and enumerated/transformed entities;
+* replace traversed the full region, evaluated its live mask, and copied every old block;
+* walls, faces/outline, and center generated complete position lists and immediately
+  evaluated patterns and mutated them;
+* overlay scanned every selected column from top to bottom before applying its pattern;
+* naturalize scanned and mutated every block in every selected column;
+* stack and move fully captured the source and synchronously performed all repetitions,
+  clearing, and destination writes; and
+* set prepared all changed chunks, captured complete history, committed, synchronized,
+  and emitted packets in the intercepted invocation.
+
+Paste is now the only one of these paths reported `ACTIVE`: it follows incremental capture,
+worker planning, bounded commit, then finalization. The installed set, replace, geometry,
+overlay, naturalize, stack, and move bytecode hooks are reported `HOOKED` and immediately
+fall through to Enhanced's native implementation. This is intentional: hook presence is
+not represented as asynchronous safety, and Overdrive no longer claims those operations
+until dedicated incremental owners preserve their mask/pattern and (for stack/move)
+full-source-before-mutation ordering.
