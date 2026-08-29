@@ -28,12 +28,14 @@ public final class PasteHookStatus {
     public static final AtomicLong pastePlanningActive=new AtomicLong(),pasteCommitActive=new AtomicLong();
     public static final AtomicLong pasteWorkerTasksSubmitted=new AtomicLong(),pasteWorkerTasksCompleted=new AtomicLong(),pasteWorkerActive=new AtomicLong(),pasteWorkerPlanNanos=new AtomicLong(),pasteWorkerMaxConcurrency=new AtomicLong();
     public static final AtomicLong pastePreparedBlocks=new AtomicLong(),pastePlannedBlocks=new AtomicLong(),pasteSubmittedBlocks=new AtomicLong(),pasteCommittedBlocks=new AtomicLong();
+    public static final AtomicLong pasteSourceAirCells=new AtomicLong(),pasteIgnoreAirFilteredCells=new AtomicLong(),pasteDestinationMatchedCells=new AtomicLong(),pasteOtherwiseFilteredCells=new AtomicLong();
     public static final AtomicLong pastePreparedTiles=new AtomicLong(),pasteCommittedTiles=new AtomicLong(),pastePreparedEntities=new AtomicLong(),pasteCommittedEntities=new AtomicLong(),pasteTransformedBlocks=new AtomicLong();
     public static final AtomicLong lastPastePrepareMillis=new AtomicLong(),lastPastePlanMillis=new AtomicLong(),lastPasteCommitMillis=new AtomicLong();
     public static final AtomicLong lastOperationCommandInterceptMillis=new AtomicLong(),lastOperationSnapshotWallMillis=new AtomicLong(),lastOperationSnapshotActiveMillis=new AtomicLong();
     public static final AtomicLong lastOperationPlanWallMillis=new AtomicLong(),lastOperationCommitWallMillis=new AtomicLong(),lastOperationCommitActiveMillis=new AtomicLong(),lastOperationWallMillis=new AtomicLong(),lastOperationMaxServerSliceMillis=new AtomicLong();
     public static final AtomicLong sourceCaptureServerMillis=new AtomicLong(),destinationCaptureServerMillis=new AtomicLong(),commitServerMillis=new AtomicLong(),queueDrainServerMillis=new AtomicLong(),finalizationServerMillis=new AtomicLong();
     public static final AtomicLong submittedSinceLastDrain=new AtomicLong(),chunksSinceLastDrain=new AtomicLong(),flushCount=new AtomicLong(),lastFlushMillis=new AtomicLong(),totalFlushNanos=new AtomicLong(),maxFlushMillis=new AtomicLong(),maxSubmissionSliceMillis=new AtomicLong(),maxFinalFlushMillis=new AtomicLong(),finalFlushQueuedMutations=new AtomicLong(),finalFlushMillis=new AtomicLong();
+    public static final AtomicLong finalFlushChunks=new AtomicLong(),uninterruptibleFlushOverBudgetCount=new AtomicLong();
     public static final AtomicLong snapshotProcessed=new AtomicLong(),snapshotTotalEstimate=new AtomicLong(),workerQueuedChunks=new AtomicLong(),workerCompletedChunks=new AtomicLong(),commitRemaining=new AtomicLong();
     public static volatile String activePhase="IDLE";
     public static RuntimeShape runtimeShape(){return runtimeShape.get();}
