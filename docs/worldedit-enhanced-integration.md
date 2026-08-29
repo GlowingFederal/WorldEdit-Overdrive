@@ -31,6 +31,26 @@ contain only the owned `com/glowingfederal/worldeditoverdrive` class tree and
 `mcmod.info`; it must not contain `com/boydti/fawe`, project-owned
 `com/sk89q/worldedit`, or dependency implementation classes.
 
+## LaunchWrapper-safe frame computation
+
+The `EditSession` transformer recomputes frames for the complete class, including
+untouched methods. Frame hierarchy queries are answered from `.class` resource
+headers exposed by LaunchWrapper rather than by loading classes. This avoids both
+class initialization and a recursive transformation request while retaining the
+actual WorldEdit inheritance graph; resolved headers are cached.
+
+This matters in Enhanced 6.3.0's `fillXZ`: local 9 receives either
+`RecursiveVisitor` or `DownwardVisitor`, and `DownwardVisitor` extends
+`RecursiveVisitor`. The branch merge must therefore retain `RecursiveVisitor`,
+which is the receiver required by the subsequent `visit` and `getAffected`
+calls. Widening that local to `Object` produces invalid bytecode even though
+Overdrive does not modify `fillXZ` itself.
+
+Hierarchy metadata failure is fail-open. If every type needed for safe frame
+emission cannot be read, Overdrive discards the attempted `EditSession` rewrite,
+returns the original Enhanced bytes, and reports all associated command hooks as
+unavailable.
+
 ## Deferred work
 
 This baseline intentionally does not port Forge chunk writers, FAWE queues,
