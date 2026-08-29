@@ -32,12 +32,33 @@ public final class EnhancedCommandBridge {
             return result;
         }
     }
-    public static Decision replace(EditSession session,Region region,Mask mask,Pattern pattern)throws MaxChangedBlocksException{
-        CommandHookStatus.replaceBridgeInvoked.incrementAndGet();long wall=System.nanoTime(),snap=wall;
-        List<Vector> positions=new ArrayList<Vector>();List<BaseBlock> old=new ArrayList<BaseBlock>();
-        for(Vector p:region)if(mask.matches(p)){positions.add(p.toBlockVector());old.add(new BaseBlock(session.getBlock(p)));}
-        CommandHookStatus.lastOperationSnapshotMillis.set(ms(snap));int changed=apply(session,positions,pattern);
-        complete("replace",wall,CommandHookStatus.replaceAccelerated);return Decision.handled(changed);
+    public static Decision replace(
+            EditSession session,
+            Region region,
+            Mask mask,
+            Pattern pattern
+    ) throws MaxChangedBlocksException {
+        CommandHookStatus.replaceBridgeInvoked.incrementAndGet();
+
+        long wall = System.nanoTime();
+        long snap = wall;
+
+        List<Vector> positions = new ArrayList<Vector>();
+        List<BaseBlock> old = new ArrayList<BaseBlock>();
+
+        for (Vector p : region) {
+            if (mask.matches(session, p)) {
+                positions.add(p.toBlockVector());
+                old.add(new BaseBlock(session.getBlock(p)));
+            }
+        }
+
+        CommandHookStatus.lastOperationSnapshotMillis.set(ms(snap));
+
+        int changed = apply(session, positions, pattern);
+
+        complete("replace", wall, CommandHookStatus.replaceAccelerated);
+        return Decision.handled(changed);
     }
     public static Decision geometry(EditSession session,Region region,Pattern pattern,int kind)throws MaxChangedBlocksException{
         CommandHookStatus.geometryBridgeInvoked.incrementAndGet();long wall=System.nanoTime();CuboidRegion box=CuboidRegion.makeCuboid(region);Vector min=box.getMinimumPoint(),max=box.getMaximumPoint();List<Vector> out=new ArrayList<Vector>();
