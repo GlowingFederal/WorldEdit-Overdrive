@@ -382,3 +382,15 @@ Changes are listed oldest to newest.
   expression evaluator, and forest retains generator-owned randomness.
 - Production compilation was intentionally not run because this change request
   explicitly prohibits compiling binary files.
+
+## (19539e6 Fix EditSession hook verifier control flow)
+
+- Replaced the unconditional accelerated-return prefixes for every newly hooked
+  `EditSession` command-family method with explicit handled/not-handled bridge
+  decisions and a not-handled branch into the untouched Enhanced implementation.
+- Recomputed Java 8 stack-map frames and maximum stack/local values for the whole
+  transformed `EditSession` class through the LaunchWrapper-safe class writer.
+- Preserved fail-open vanilla execution for `replaceBlocks`, cuboid walls/faces,
+  center, stack, move, overlay, and naturalize hooks.
+- Production compilation was intentionally not run because this change request
+  explicitly prohibits compiling binary files.

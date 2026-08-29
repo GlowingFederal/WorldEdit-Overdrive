@@ -48,6 +48,13 @@ contracts and mutate through the originating `EditSession`; specialized commands
 outside these exact descriptors remain vanilla. `/overdrive status` derives all
 ACTIVE values from the corresponding installed runtime hooks.
 
+Each `EditSession` entry bridge returns an explicit handled/not-handled decision.
+Handled decisions return the accelerated changed-block count; not-handled decisions
+branch to the first instruction of the untouched Enhanced method body. The shared
+transform rewrites stack-map frames and maximum stack/local values for the entire
+class with the LaunchWrapper-safe writer, so all eight command-family hooks remain
+valid Java 8 control flow while retaining fail-open vanilla behavior.
+
 ## Runtime validation
 
 On an Enhanced 6.3.0 Forge 1.7.10 server, use a large selection and record
