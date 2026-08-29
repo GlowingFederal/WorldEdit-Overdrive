@@ -114,3 +114,16 @@ hook support, incremental slices, resume calls and maximum duration, top-level
 commit class, observable stage-three remaining entries, and final synchronous
 flush count. Runtime profiling is still required to measure the world-specific
 cost of the downstream dirty-chunk finalizer.
+
+
+## Incremental reorder completion contract
+
+The Enhanced 6.3.0 transforms preserve `BlockMapEntryPlacer`'s field-backed iterator
+and keep `Stage3Committer`'s remaining block/type collections in weak, operation-keyed
+side state. A deadline returns the same non-null child operation. Only exhausted state
+returns `null`; stage three never yields within an attachment chain. The deferred paste
+additionally requires the retained top-level commit to return `null` with all observable
+stage counts at zero before it creates entities, remembers the edit, or reports success.
+A mismatch is a fail-closed acceleration error because replaying vanilla after partial
+mutation would be unsafe. Detailed paste counters are reset on admission and status
+labels identify them as last-paste values.

@@ -466,3 +466,17 @@ Changes are listed oldest to newest.
 - Added reorder commit support, slice, resume duration, operation class/remaining, and
   final synchronous flush diagnostics. Runtime validation remains required; compilation
   was intentionally not run by request.
+
+## 2026-08-29 00:00 — Correct incremental reorder continuation lifecycle
+
+- Corrected the Enhanced 6.3.0 reorder transforms so deadline expiration returns
+  the same state-owning child operation, while only iterator or persistent stage-three
+  exhaustion returns `null`. Stage-three traversal remains in transformer-managed
+  weak side state and yields only after a complete dependency chain.
+- Added commit lifecycle and per-stage remaining diagnostics, actual downstream
+  reorder placement accounting, and a fail-closed check that rejects a top-level
+  null continuation while observable reorder work remains. Failure occurs before
+  entities, session history finalization, selection changes, or the success message.
+- Reset detailed counters at accelerated-paste admission and label them as last-paste
+  diagnostics rather than presenting cumulative values as one operation's results.
+- Runtime validation with the large reorder-enabled acceptance schematic remains required.
