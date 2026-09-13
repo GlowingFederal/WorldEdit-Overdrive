@@ -501,3 +501,22 @@ Changes are listed oldest to newest.
 - Added nanosecond deadline budget, resume-entry/first-placement headroom, resume duration and work-unit diagnostics, including expired-at-entry and first-mutation overshoot counts.
 - Added commit-state elapsed versus active timing and maximum-resume stage/work/entry-state diagnostics. Downstream mutation timing now records the slowest individual `setBlock` duration and its destination chunk without per-block logging.
 - Preserved the existing hard tick deadline and repeated same-tick resume loop. No budget constants or continuation lifecycle semantics changed; runtime validation is still required to determine whether pacing is deadline starvation, full budget consumption, or indivisible downstream mutation cost.
+
+## Unify deferred operations under the bounded coordinator
+
+- Moved deferred paste admission, fair server-tick scheduling, preparation work, and
+  retained-memory accounting into `OverdriveCoordinator`; the paste manager no longer
+  owns a scheduler, worker pool, or global memory counter.
+- Added atomic per-owner admission (two queued or active operations), global and
+  per-operation reservations before capture, bounded shared-worker submission, terminal
+  memory release, shutdown cancellation, operation IDs, and safe pre-mutation operator
+  cancellation.
+- Made the adaptive deadline one global server-tick budget shared by retained clipboard
+  work and prepared chunk commits, and exposed admitted owner ID, phase, and retained
+  bytes through `/overdrive status`.
+- This increment only changes the already-installed bounded `//paste` path. Other hooked
+  command families still reject acceleration or use their documented native Enhanced
+  path; copy and schematic/structure loading do not yet have proven bounded adapters.
+- Source inspections and textual checks were run. Compilation and tests were not run
+  because this change request explicitly prohibits compiling binary files or writing
+  test code.
