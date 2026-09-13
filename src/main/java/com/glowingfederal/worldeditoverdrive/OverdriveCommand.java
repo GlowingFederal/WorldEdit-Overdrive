@@ -1,14 +1,15 @@
 package com.glowingfederal.worldeditoverdrive;
 
+import com.glowingfederal.worldeditoverdrive.execution.AdaptiveServerBudget;
+import com.glowingfederal.worldeditoverdrive.execution.CoordinatorStatistics;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveConfiguration;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveCoordinator;
+import com.glowingfederal.worldeditoverdrive.integration.CommandHookStatus;
+import com.glowingfederal.worldeditoverdrive.integration.DeferredPasteManager;
 import com.glowingfederal.worldeditoverdrive.integration.OverdriveEditSummary;
 import com.glowingfederal.worldeditoverdrive.integration.OverdriveSummaries;
-import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
 import com.glowingfederal.worldeditoverdrive.integration.PasteHookStatus;
-import com.glowingfederal.worldeditoverdrive.integration.DeferredPasteManager;
-import com.glowingfederal.worldeditoverdrive.integration.CommandHookStatus;
-import com.glowingfederal.worldeditoverdrive.execution.AdaptiveServerBudget;
+import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
 import java.util.Arrays;
@@ -17,62 +18,390 @@ import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.ChatComponentText;
 
-/** Dedicated-server console/operator diagnostics; no client command handler is involved. */
+/**
+ * Dedicated-server console/operator diagnostics; no client command handler is
+ * involved.
+ */
 public final class OverdriveCommand extends CommandBase {
-    private final WorldEditOverdrive mod;
-    OverdriveCommand(WorldEditOverdrive mod){this.mod=mod;}
-    public String getCommandName(){return "overdrive";}
-    public String getCommandUsage(ICommandSender sender){return "/overdrive <status|stats>";}
-    public int getRequiredPermissionLevel(){return 2;}
-    public List getCommandAliases(){return Arrays.asList("worldeditoverdrive");}
-    public void processCommand(ICommandSender sender,String[] args){
-        if(args.length!=1){send(sender,getCommandUsage(sender));return;}
-        if("status".equalsIgnoreCase(args[0]))status(sender);
-        else if("stats".equalsIgnoreCase(args[0]))stats(sender);
-        else send(sender,getCommandUsage(sender));
+  private final WorldEditOverdrive mod;
+  OverdriveCommand(WorldEditOverdrive mod) { this.mod = mod; }
+  public String getCommandName() { return "overdrive"; }
+  public String getCommandUsage(ICommandSender sender) {
+    return "/overdrive <status|stats|cancel operation-id>";
+  }
+  public int getRequiredPermissionLevel() { return 2; }
+  public List getCommandAliases() {
+    return Arrays.asList("worldeditoverdrive");
+  }
+  public void processCommand(ICommandSender sender, String[] args) {
+    if (args.length == 2 && "cancel".equalsIgnoreCase(args[0])) {
+      cancel(sender, args[1]);
+      return;
     }
-    private void status(ICommandSender sender){
-        ModContainer we=Loader.instance().getIndexedModList().get("worldedit");OverdriveCoordinator coordinator=mod.getCoordinator();
-        OverdriveConfiguration c=mod.getConfiguration();
-        send(sender,"WorldEdit="+(we==null?"not present":we.getVersion())+" Overdrive="+WorldEditOverdrive.VERSION+" hook="+(Stage4HookStatus.activeSetCommandHookInstalled?"ACTIVE":"INACTIVE"));
-        send(sender,"corePlugin="+Stage4HookStatus.corePluginLoaded+" transformer="+Stage4HookStatus.transformerRegistered+" selectionCommandSeen="+Stage4HookStatus.selectionCommandSeen+" activeDescriptorMatched="+Stage4HookStatus.selectionCommandDescriptorMatched);
-        send(sender,"legacySetBlocksHookInstalled="+Stage4HookStatus.legacySetBlocksHookInstalled+" activeSetCommandHookInstalled="+Stage4HookStatus.activeSetCommandHookInstalled);
-        send(sender,"hookReason="+Stage4HookStatus.hookReason);
-        send(sender,"operationSupport set="+hooked(Stage4HookStatus.activeSetCommandHookInstalled)+" paste="+(PasteHookStatus.pasteHookInstalled?"ACTIVE":"UNAVAILABLE")+" replace="+hooked(CommandHookStatus.replaceHookInstalled)+" walls="+hooked(CommandHookStatus.geometryHookInstalled)+" faces="+hooked(CommandHookStatus.geometryHookInstalled)+" outline="+hooked(CommandHookStatus.geometryHookInstalled)+" center="+hooked(CommandHookStatus.geometryHookInstalled)+" overlay="+hooked(CommandHookStatus.overlayHookInstalled)+" naturalize="+hooked(CommandHookStatus.overlayHookInstalled)+" stack="+hooked(CommandHookStatus.copyMoveHookInstalled)+" move="+hooked(CommandHookStatus.copyMoveHookInstalled)+" line=VANILLA curve=VANILLA smooth=VANILLA deform=VANILLA hollow=VANILLA regen=VANILLA forest=VANILLA");
-        send(sender,"commandHooks replace="+CommandHookStatus.replaceHookInstalled+" geometry="+CommandHookStatus.geometryHookInstalled+" copyMove="+CommandHookStatus.copyMoveHookInstalled+" overlay="+CommandHookStatus.overlayHookInstalled);
-        send(sender,"commandBridges replace="+CommandHookStatus.replaceBridgeInvoked.get()+" geometry="+CommandHookStatus.geometryBridgeInvoked.get()+" copyMove="+CommandHookStatus.copyMoveBridgeInvoked.get()+" overlay="+CommandHookStatus.overlayBridgeInvoked.get());
-        send(sender,"commandAccelerated replace="+CommandHookStatus.replaceAccelerated.get()+" geometry="+CommandHookStatus.geometryAccelerated.get()+" stack="+CommandHookStatus.stackAccelerated.get()+" move="+CommandHookStatus.moveAccelerated.get()+" overlay="+CommandHookStatus.overlayAccelerated.get()+" naturalize="+CommandHookStatus.naturalizeAccelerated.get());
-        send(sender,"lastOperationType="+CommandHookStatus.lastOperationType+" lastOperationFallbackReason="+CommandHookStatus.lastOperationFallbackReason+" snapshotMillis="+CommandHookStatus.lastOperationSnapshotMillis.get()+" planMillis="+CommandHookStatus.lastOperationPlanMillis.get()+" commitMillis="+CommandHookStatus.lastOperationCommitMillis.get()+" wallMillis="+CommandHookStatus.lastOperationWallMillis.get());
-        send(sender,"bridge="+Stage4HookStatus.bridgeInvocations.get()+" accelerated="+Stage4HookStatus.acceleratedInvocations.get()+" fallbacks="+Stage4HookStatus.fallbackInvocations.get()+" lastFallback="+Stage4HookStatus.lastFallbackReason);
-        send(sender,"pasteHookInstalled="+PasteHookStatus.pasteHookInstalled+" pasteBridgeInvocations="+PasteHookStatus.pasteBridgeInvocations.get()+" pasteAccelerated="+PasteHookStatus.pasteAccelerated.get()+" pasteFallbacks="+PasteHookStatus.pasteFallbacks.get()+" lastPasteFallbackReason="+PasteHookStatus.lastPasteFallbackReason);
-        send(sender,"pasteDeferredActive="+PasteHookStatus.pasteDeferredActive.get()+" pasteDeferredCompleted="+PasteHookStatus.pasteDeferredCompleted.get()+" pasteDeferredFailed="+PasteHookStatus.pasteDeferredFailed.get()+" lastPasteDeferredReason="+PasteHookStatus.lastPasteDeferredReason);
-        send(sender,"pasteAccelerationFallbacks="+PasteHookStatus.pasteAccelerationFallbacks.get()+" lastPasteAccelerationFallbackReason="+PasteHookStatus.lastPasteAccelerationFallbackReason);
-        send(sender,"pastePlanningActive="+PasteHookStatus.pastePlanningActive.get()+" pasteCommitActive="+PasteHookStatus.pasteCommitActive.get()+" lastPasteSourceCellsVisited="+PasteHookStatus.pastePreparedBlocks.get()+" lastPasteSourceAirCells="+PasteHookStatus.pasteSourceAirCells.get()+" lastPasteIgnoreAirFilteredCells="+PasteHookStatus.pasteIgnoreAirFilteredCells.get());
-        send(sender,"lastPasteDestinationMatchedCells="+PasteHookStatus.pasteDestinationMatchedCells.get()+" lastPasteOtherwiseFilteredCells="+PasteHookStatus.pasteOtherwiseFilteredCells.get()+" lastPastePlannedMutations="+PasteHookStatus.pastePlannedBlocks.get()+" lastPasteSubmittedMutations="+PasteHookStatus.pasteSubmittedBlocks.get()+" lastPasteCommittedMutations="+PasteHookStatus.pasteCommittedBlocks.get());
-        send(sender,"lastPastePreparedTiles="+PasteHookStatus.pastePreparedTiles.get()+" lastPasteCommittedTiles="+PasteHookStatus.pasteCommittedTiles.get()+" lastPastePreparedEntities="+PasteHookStatus.pastePreparedEntities.get()+" lastPasteCommittedEntities="+PasteHookStatus.pasteCommittedEntities.get()+" lastPasteTransformedBlocks="+PasteHookStatus.pasteTransformedBlocks.get()+" pasteTransform="+PasteHookStatus.lastPasteTransform+" pasteIgnoreAir="+PasteHookStatus.lastPasteIgnoreAir);
-        send(sender,"lastPastePrepareMillis="+PasteHookStatus.lastPastePrepareMillis.get()+" lastPastePlanMillis="+PasteHookStatus.lastPastePlanMillis.get()+" lastPasteCommitMillis="+PasteHookStatus.lastPasteCommitMillis.get());
-        send(sender,"activePhase="+PasteHookStatus.activePhase+" snapshotProcessed="+PasteHookStatus.snapshotProcessed.get()+" snapshotTotalEstimate="+PasteHookStatus.snapshotTotalEstimate.get()+" workerQueuedChunks="+PasteHookStatus.workerQueuedChunks.get()+" workerCompletedChunks="+PasteHookStatus.workerCompletedChunks.get()+" commitRemaining="+PasteHookStatus.commitRemaining.get());
-        send(sender,"workerTasksSubmitted="+PasteHookStatus.pasteWorkerTasksSubmitted.get()+" workerTasksCompleted="+PasteHookStatus.pasteWorkerTasksCompleted.get()+" workerActive="+PasteHookStatus.pasteWorkerActive.get()+" workerPlanMillis="+PasteHookStatus.pasteWorkerPlanNanos.get()/1000000L+" averageWorkerTaskMillis="+(PasteHookStatus.pasteWorkerTasksCompleted.get()==0?0:PasteHookStatus.pasteWorkerPlanNanos.get()/1000000L/PasteHookStatus.pasteWorkerTasksCompleted.get())+" maxWorkerConcurrency="+PasteHookStatus.pasteWorkerMaxConcurrency.get());
-        send(sender,"lastOperationCommandInterceptMillis="+PasteHookStatus.lastOperationCommandInterceptMillis.get()+" snapshotWallMillis="+PasteHookStatus.lastOperationSnapshotWallMillis.get()+" snapshotActiveMillis="+PasteHookStatus.lastOperationSnapshotActiveMillis.get()+" planWallMillis="+PasteHookStatus.lastOperationPlanWallMillis.get()+" commitWallMillis="+PasteHookStatus.lastOperationCommitWallMillis.get()+" commitActiveMillis="+PasteHookStatus.lastOperationCommitActiveMillis.get()+" wallMillis="+PasteHookStatus.lastOperationWallMillis.get()+" maxServerSliceMillis="+PasteHookStatus.lastOperationMaxServerSliceMillis.get());
-        AdaptiveServerBudget budget=DeferredPasteManager.budget();
-        send(sender,"serverBudgetMillis="+OverdriveEditSummary.ms(budget.budgetNanos())+" lastOverdriveTickWorkMillis="+OverdriveEditSummary.ms(budget.lastUsedNanos())+" serverHeadroomMillis="+OverdriveEditSummary.ms(budget.headroomNanos())+" maxOverdriveTickWorkMillis="+OverdriveEditSummary.ms(budget.maximumUsedNanos()));
-        send(sender,"sourceCaptureServerMillis="+PasteHookStatus.sourceCaptureServerMillis.get()+" destinationCaptureServerMillis="+PasteHookStatus.destinationCaptureServerMillis.get()+" commitServerMillis="+PasteHookStatus.commitServerMillis.get()+" queueDrainServerMillis="+PasteHookStatus.queueDrainServerMillis.get()+" finalizationServerMillis="+PasteHookStatus.finalizationServerMillis.get());
-        send(sender,"submittedSinceLastDrain="+PasteHookStatus.submittedSinceLastDrain.get()+" chunksSinceLastDrain="+PasteHookStatus.chunksSinceLastDrain.get()+" flushCount="+PasteHookStatus.flushCount.get()+" lastFlushMillis="+PasteHookStatus.lastFlushMillis.get()+" averageFlushMillis="+(PasteHookStatus.flushCount.get()==0?0:PasteHookStatus.totalFlushNanos.get()/1000000L/PasteHookStatus.flushCount.get())+" maxFlushMillis="+PasteHookStatus.maxFlushMillis.get()+" maxSubmissionSliceMillis="+PasteHookStatus.maxSubmissionSliceMillis.get()+" maxFinalFlushMillis="+PasteHookStatus.maxFinalFlushMillis.get()+" finalFlushQueuedMutations="+PasteHookStatus.finalFlushQueuedMutations.get()+" finalFlushChunks="+PasteHookStatus.finalFlushChunks.get()+" finalFlushMillis="+PasteHookStatus.finalFlushMillis.get()+" uninterruptibleFlushOverBudgetCount="+PasteHookStatus.uninterruptibleFlushOverBudgetCount.get());
-        send(sender,"queueImplementationClass="+PasteHookStatus.queueImplementationClass+" queueEnabled="+PasteHookStatus.queueEnabled+" editSessionExtentClass="+PasteHookStatus.editSessionExtentClass);
-        send(sender,"reorderEnabled="+PasteHookStatus.queueEnabled+" incrementalCommitSupported="+PasteHookStatus.incrementalCommitSupported+" incrementalCommitSlices="+PasteHookStatus.incrementalCommitSlices.get()+" commitResumeCalls="+PasteHookStatus.commitResumeCalls.get()+" maxCommitResumeMillis="+PasteHookStatus.maxCommitResumeMillis.get()+" commitOperationClass="+PasteHookStatus.commitOperationClass+" commitOperationRemaining="+PasteHookStatus.commitOperationRemaining.get()+" finalSynchronousFlushCount="+PasteHookStatus.finalSynchronousFlushCount.get());
-        send(sender,"topLevelCommitReturnedNull="+PasteHookStatus.topLevelCommitReturnedNull+" activeCommitOperationClassBeforeResume="+PasteHookStatus.activeCommitOperationClassBeforeResume+" activeCommitOperationClassAfterResume="+PasteHookStatus.activeCommitOperationClassAfterResume+" commitCompletedNormally="+PasteHookStatus.commitCompletedNormally);
-        send(sender,"reorderStage1Remaining="+PasteHookStatus.reorderStage1Remaining.get()+" reorderStage2Remaining="+PasteHookStatus.reorderStage2Remaining.get()+" reorderStage3Remaining="+PasteHookStatus.reorderStage3Remaining.get()+" blockMapPlacementsThisResume="+PasteHookStatus.blockMapPlacementsThisResume.get()+" stage3ChainsThisResume="+PasteHookStatus.stage3ChainsThisResume.get());
-        send(sender,"deadlineYieldCount="+PasteHookStatus.deadlineYieldCount.get()+" blockMapDeadlineYields="+PasteHookStatus.blockMapDeadlineYields.get()+" stage3DeadlineYields="+PasteHookStatus.stage3DeadlineYields.get());
-        send(sender,"deadlineBudgetNanos="+PasteHookStatus.deadlineBudgetNanos.get()+" deadlineRemainingNanosAtResumeEntry="+PasteHookStatus.deadlineRemainingNanosAtResumeEntry.get()+" deadlineRemainingNanosAtFirstPlacement="+PasteHookStatus.deadlineRemainingNanosAtFirstPlacement.get()+" resumeElapsedNanos="+PasteHookStatus.resumeElapsedNanos.get()+" placementsThisResume="+PasteHookStatus.placementsThisResume.get()+" deadlineExpiredAtEntry="+PasteHookStatus.deadlineExpiredAtEntry.get()+" deadlineExpiredAfterFirstPlacement="+PasteHookStatus.deadlineExpiredAfterFirstPlacement.get());
-        send(sender,"commitStateElapsedWallMillis="+PasteHookStatus.commitStateElapsedWallMillis.get()+" commitStateActiveServerMillis="+PasteHookStatus.commitStateActiveServerMillis.get()+" maxResumeStage="+PasteHookStatus.maxCommitResumeStage+" maxResumePlacements="+PasteHookStatus.maxCommitResumePlacements.get()+" maxResumeChains="+PasteHookStatus.maxCommitResumeChains.get()+" maxResumeBeganExpired="+PasteHookStatus.maxCommitResumeBeganExpired+" maxDownstreamMutationDestinationChunk="+PasteHookStatus.maxDownstreamMutationDestinationChunk+" maxDownstreamMutationMillis="+OverdriveEditSummary.ms(PasteHookStatus.maxDownstreamMutationNanos.get()));
-        send(sender,"lastPasteGraphDiagnostic="+PasteHookStatus.lastPasteGraphDiagnostic);
-        send(sender,"pasteRuntimeShape="+PasteHookStatus.runtimeShape()+" forwardExtentCopySeen="+PasteHookStatus.forwardExtentCopySeen()+" pasteRuntimeShapeCompatible="+PasteHookStatus.runtimeShapeCompatible()+" pasteBytecodeModified="+PasteHookStatus.pasteBytecodeModified);
-        send(sender,"pasteHookReason="+PasteHookStatus.hookReason);
-        send(sender,"coordinator="+(coordinator==null?"stopped":"running")+" workers="+c.preparationWorkers+" globalMemory="+c.maxPreparedBytes+" operationMemory="+c.maxPreparedBytesPerOperation+" commitTick="+OverdriveEditSummary.ms(c.commitBudgetNanos)+"ms");
+    if (args.length != 1) {
+      send(sender, getCommandUsage(sender));
+      return;
     }
-    private void stats(ICommandSender sender){OverdriveEditSummary s=OverdriveSummaries.latest();if(s==null){send(sender,"No accelerated operation snapshot");return;}
-        send(sender,s.format());send(sender,"packets: sparse="+s.sparsePackets+" chunk="+s.chunkPackets+" tile="+s.tilePackets+" result="+(s.success?"SUCCESS":"FAILURE")+(s.failedPhase==null?"":" phase="+s.failedPhase+" error="+s.failureText));}
-    private static void send(ICommandSender sender,String text){sender.addChatMessage(new ChatComponentText("[WorldEditOverdrive] "+text));}
-    private static String active(boolean installed){return installed?"ACTIVE":"UNAVAILABLE";}
-    private static String hooked(boolean installed){return installed?"HOOKED":"UNAVAILABLE";}
+    if ("status".equalsIgnoreCase(args[0]))
+      status(sender);
+    else if ("stats".equalsIgnoreCase(args[0]))
+      stats(sender);
+    else
+      send(sender, getCommandUsage(sender));
+  }
+  private void status(ICommandSender sender) {
+    ModContainer we = Loader.instance().getIndexedModList().get("worldedit");
+    OverdriveCoordinator coordinator = mod.getCoordinator();
+    OverdriveConfiguration c = mod.getConfiguration();
+    send(sender,
+         "WorldEdit=" + (we == null ? "not present" : we.getVersion()) +
+             " Overdrive=" + WorldEditOverdrive.VERSION + " hook=" +
+             (Stage4HookStatus.activeSetCommandHookInstalled ? "ACTIVE"
+                                                             : "INACTIVE"));
+    send(sender,
+         "corePlugin=" + Stage4HookStatus.corePluginLoaded + " transformer=" +
+             Stage4HookStatus.transformerRegistered + " selectionCommandSeen=" +
+             Stage4HookStatus.selectionCommandSeen +
+             " activeDescriptorMatched=" +
+             Stage4HookStatus.selectionCommandDescriptorMatched);
+    send(sender, "legacySetBlocksHookInstalled=" +
+                     Stage4HookStatus.legacySetBlocksHookInstalled +
+                     " activeSetCommandHookInstalled=" +
+                     Stage4HookStatus.activeSetCommandHookInstalled);
+    send(sender, "hookReason=" + Stage4HookStatus.hookReason);
+    send(sender,
+         "operationSupport set=" +
+             hooked(Stage4HookStatus.activeSetCommandHookInstalled) +
+             " paste=" +
+             (PasteHookStatus.pasteHookInstalled ? "ACTIVE" : "UNAVAILABLE") +
+             " replace=" + hooked(CommandHookStatus.replaceHookInstalled) +
+             " walls=" + hooked(CommandHookStatus.geometryHookInstalled) +
+             " faces=" + hooked(CommandHookStatus.geometryHookInstalled) +
+             " outline=" + hooked(CommandHookStatus.geometryHookInstalled) +
+             " center=" + hooked(CommandHookStatus.geometryHookInstalled) +
+             " overlay=" + hooked(CommandHookStatus.overlayHookInstalled) +
+             " naturalize=" + hooked(CommandHookStatus.overlayHookInstalled) +
+             " stack=" + hooked(CommandHookStatus.copyMoveHookInstalled) +
+             " move=" + hooked(CommandHookStatus.copyMoveHookInstalled) +
+             (" line=VANILLA curve=VANILLA smooth=VANILLA deform=VANILLA "
+              + "hollow=VANILLA regen=VANILLA forest=VANILLA"));
+    send(sender,
+         "commandHooks replace=" + CommandHookStatus.replaceHookInstalled +
+             " geometry=" + CommandHookStatus.geometryHookInstalled +
+             " copyMove=" + CommandHookStatus.copyMoveHookInstalled +
+             " overlay=" + CommandHookStatus.overlayHookInstalled);
+    send(sender,
+         "commandBridges replace=" +
+             CommandHookStatus.replaceBridgeInvoked.get() +
+             " geometry=" + CommandHookStatus.geometryBridgeInvoked.get() +
+             " copyMove=" + CommandHookStatus.copyMoveBridgeInvoked.get() +
+             " overlay=" + CommandHookStatus.overlayBridgeInvoked.get());
+    send(sender,
+         "commandAccelerated replace=" +
+             CommandHookStatus.replaceAccelerated.get() +
+             " geometry=" + CommandHookStatus.geometryAccelerated.get() +
+             " stack=" + CommandHookStatus.stackAccelerated.get() +
+             " move=" + CommandHookStatus.moveAccelerated.get() +
+             " overlay=" + CommandHookStatus.overlayAccelerated.get() +
+             " naturalize=" + CommandHookStatus.naturalizeAccelerated.get());
+    send(
+        sender,
+        "lastOperationType=" + CommandHookStatus.lastOperationType +
+            " lastOperationFallbackReason=" +
+            CommandHookStatus.lastOperationFallbackReason + " snapshotMillis=" +
+            CommandHookStatus.lastOperationSnapshotMillis.get() +
+            " planMillis=" + CommandHookStatus.lastOperationPlanMillis.get() +
+            " commitMillis=" +
+            CommandHookStatus.lastOperationCommitMillis.get() +
+            " wallMillis=" + CommandHookStatus.lastOperationWallMillis.get());
+    send(sender,
+         "bridge=" + Stage4HookStatus.bridgeInvocations.get() +
+             " accelerated=" + Stage4HookStatus.acceleratedInvocations.get() +
+             " fallbacks=" + Stage4HookStatus.fallbackInvocations.get() +
+             " lastFallback=" + Stage4HookStatus.lastFallbackReason);
+    send(sender,
+         "pasteHookInstalled=" + PasteHookStatus.pasteHookInstalled +
+             " pasteBridgeInvocations=" +
+             PasteHookStatus.pasteBridgeInvocations.get() +
+             " pasteAccelerated=" + PasteHookStatus.pasteAccelerated.get() +
+             " pasteFallbacks=" + PasteHookStatus.pasteFallbacks.get() +
+             " lastPasteFallbackReason=" +
+             PasteHookStatus.lastPasteFallbackReason);
+    send(sender,
+         "pasteDeferredActive=" + PasteHookStatus.pasteDeferredActive.get() +
+             " pasteDeferredCompleted=" +
+             PasteHookStatus.pasteDeferredCompleted.get() +
+             " pasteDeferredFailed=" +
+             PasteHookStatus.pasteDeferredFailed.get() +
+             " lastPasteDeferredReason=" +
+             PasteHookStatus.lastPasteDeferredReason);
+    send(sender, "pasteAccelerationFallbacks=" +
+                     PasteHookStatus.pasteAccelerationFallbacks.get() +
+                     " lastPasteAccelerationFallbackReason=" +
+                     PasteHookStatus.lastPasteAccelerationFallbackReason);
+    send(sender,
+         "pastePlanningActive=" + PasteHookStatus.pastePlanningActive.get() +
+             " pasteCommitActive=" + PasteHookStatus.pasteCommitActive.get() +
+             " lastPasteSourceCellsVisited=" +
+             PasteHookStatus.pastePreparedBlocks.get() +
+             " lastPasteSourceAirCells=" +
+             PasteHookStatus.pasteSourceAirCells.get() +
+             " lastPasteIgnoreAirFilteredCells=" +
+             PasteHookStatus.pasteIgnoreAirFilteredCells.get());
+    send(sender, "lastPasteDestinationMatchedCells=" +
+                     PasteHookStatus.pasteDestinationMatchedCells.get() +
+                     " lastPasteOtherwiseFilteredCells=" +
+                     PasteHookStatus.pasteOtherwiseFilteredCells.get() +
+                     " lastPastePlannedMutations=" +
+                     PasteHookStatus.pastePlannedBlocks.get() +
+                     " lastPasteSubmittedMutations=" +
+                     PasteHookStatus.pasteSubmittedBlocks.get() +
+                     " lastPasteCommittedMutations=" +
+                     PasteHookStatus.pasteCommittedBlocks.get());
+    send(sender,
+         "lastPastePreparedTiles=" + PasteHookStatus.pastePreparedTiles.get() +
+             " lastPasteCommittedTiles=" +
+             PasteHookStatus.pasteCommittedTiles.get() +
+             " lastPastePreparedEntities=" +
+             PasteHookStatus.pastePreparedEntities.get() +
+             " lastPasteCommittedEntities=" +
+             PasteHookStatus.pasteCommittedEntities.get() +
+             " lastPasteTransformedBlocks=" +
+             PasteHookStatus.pasteTransformedBlocks.get() +
+             " pasteTransform=" + PasteHookStatus.lastPasteTransform +
+             " pasteIgnoreAir=" + PasteHookStatus.lastPasteIgnoreAir);
+    send(sender, "lastPastePrepareMillis=" +
+                     PasteHookStatus.lastPastePrepareMillis.get() +
+                     " lastPastePlanMillis=" +
+                     PasteHookStatus.lastPastePlanMillis.get() +
+                     " lastPasteCommitMillis=" +
+                     PasteHookStatus.lastPasteCommitMillis.get());
+    send(sender,
+         "activePhase=" + PasteHookStatus.activePhase +
+             " snapshotProcessed=" + PasteHookStatus.snapshotProcessed.get() +
+             " snapshotTotalEstimate=" +
+             PasteHookStatus.snapshotTotalEstimate.get() +
+             " workerQueuedChunks=" +
+             PasteHookStatus.workerQueuedChunks.get() +
+             " workerCompletedChunks=" +
+             PasteHookStatus.workerCompletedChunks.get() +
+             " commitRemaining=" + PasteHookStatus.commitRemaining.get());
+    send(sender,
+         "workerTasksSubmitted=" +
+             PasteHookStatus.pasteWorkerTasksSubmitted.get() +
+             " workerTasksCompleted=" +
+             PasteHookStatus.pasteWorkerTasksCompleted.get() +
+             " workerActive=" + PasteHookStatus.pasteWorkerActive.get() +
+             " workerPlanMillis=" +
+             PasteHookStatus.pasteWorkerPlanNanos.get() / 1000000L +
+             " averageWorkerTaskMillis=" +
+             (PasteHookStatus.pasteWorkerTasksCompleted.get() == 0
+                  ? 0
+                  : PasteHookStatus.pasteWorkerPlanNanos.get() / 1000000L /
+                        PasteHookStatus.pasteWorkerTasksCompleted.get()) +
+             " maxWorkerConcurrency=" +
+             PasteHookStatus.pasteWorkerMaxConcurrency.get());
+    send(sender,
+         "lastOperationCommandInterceptMillis=" +
+             PasteHookStatus.lastOperationCommandInterceptMillis.get() +
+             " snapshotWallMillis=" +
+             PasteHookStatus.lastOperationSnapshotWallMillis.get() +
+             " snapshotActiveMillis=" +
+             PasteHookStatus.lastOperationSnapshotActiveMillis.get() +
+             " planWallMillis=" +
+             PasteHookStatus.lastOperationPlanWallMillis.get() +
+             " commitWallMillis=" +
+             PasteHookStatus.lastOperationCommitWallMillis.get() +
+             " commitActiveMillis=" +
+             PasteHookStatus.lastOperationCommitActiveMillis.get() +
+             " wallMillis=" + PasteHookStatus.lastOperationWallMillis.get() +
+             " maxServerSliceMillis=" +
+             PasteHookStatus.lastOperationMaxServerSliceMillis.get());
+    AdaptiveServerBudget budget = DeferredPasteManager.budget();
+    send(sender, budget == null
+                     ? "serverBudget=coordinator stopped"
+                     : "serverBudgetMillis=" +
+                           OverdriveEditSummary.ms(budget.budgetNanos()) +
+                           " lastOverdriveTickWorkMillis=" +
+                           OverdriveEditSummary.ms(budget.lastUsedNanos()) +
+                           " serverHeadroomMillis=" +
+                           OverdriveEditSummary.ms(budget.headroomNanos()) +
+                           " maxOverdriveTickWorkMillis=" +
+                           OverdriveEditSummary.ms(budget.maximumUsedNanos()));
+    send(sender, "sourceCaptureServerMillis=" +
+                     PasteHookStatus.sourceCaptureServerMillis.get() +
+                     " destinationCaptureServerMillis=" +
+                     PasteHookStatus.destinationCaptureServerMillis.get() +
+                     " commitServerMillis=" +
+                     PasteHookStatus.commitServerMillis.get() +
+                     " queueDrainServerMillis=" +
+                     PasteHookStatus.queueDrainServerMillis.get() +
+                     " finalizationServerMillis=" +
+                     PasteHookStatus.finalizationServerMillis.get());
+    send(sender,
+         "submittedSinceLastDrain=" +
+             PasteHookStatus.submittedSinceLastDrain.get() +
+             " chunksSinceLastDrain=" +
+             PasteHookStatus.chunksSinceLastDrain.get() +
+             " flushCount=" + PasteHookStatus.flushCount.get() +
+             " lastFlushMillis=" + PasteHookStatus.lastFlushMillis.get() +
+             " averageFlushMillis=" +
+             (PasteHookStatus.flushCount.get() == 0
+                  ? 0
+                  : PasteHookStatus.totalFlushNanos.get() / 1000000L /
+                        PasteHookStatus.flushCount.get()) +
+             " maxFlushMillis=" + PasteHookStatus.maxFlushMillis.get() +
+             " maxSubmissionSliceMillis=" +
+             PasteHookStatus.maxSubmissionSliceMillis.get() +
+             " maxFinalFlushMillis=" +
+             PasteHookStatus.maxFinalFlushMillis.get() +
+             " finalFlushQueuedMutations=" +
+             PasteHookStatus.finalFlushQueuedMutations.get() +
+             " finalFlushChunks=" + PasteHookStatus.finalFlushChunks.get() +
+             " finalFlushMillis=" + PasteHookStatus.finalFlushMillis.get() +
+             " uninterruptibleFlushOverBudgetCount=" +
+             PasteHookStatus.uninterruptibleFlushOverBudgetCount.get());
+    send(sender, "queueImplementationClass=" +
+                     PasteHookStatus.queueImplementationClass +
+                     " queueEnabled=" + PasteHookStatus.queueEnabled +
+                     " editSessionExtentClass=" +
+                     PasteHookStatus.editSessionExtentClass);
+    send(sender,
+         "reorderEnabled=" + PasteHookStatus.queueEnabled +
+             " incrementalCommitSupported=" +
+             PasteHookStatus.incrementalCommitSupported +
+             " incrementalCommitSlices=" +
+             PasteHookStatus.incrementalCommitSlices.get() +
+             " commitResumeCalls=" + PasteHookStatus.commitResumeCalls.get() +
+             " maxCommitResumeMillis=" +
+             PasteHookStatus.maxCommitResumeMillis.get() +
+             " commitOperationClass=" + PasteHookStatus.commitOperationClass +
+             " commitOperationRemaining=" +
+             PasteHookStatus.commitOperationRemaining.get() +
+             " finalSynchronousFlushCount=" +
+             PasteHookStatus.finalSynchronousFlushCount.get());
+    send(sender, "topLevelCommitReturnedNull=" +
+                     PasteHookStatus.topLevelCommitReturnedNull +
+                     " activeCommitOperationClassBeforeResume=" +
+                     PasteHookStatus.activeCommitOperationClassBeforeResume +
+                     " activeCommitOperationClassAfterResume=" +
+                     PasteHookStatus.activeCommitOperationClassAfterResume +
+                     " commitCompletedNormally=" +
+                     PasteHookStatus.commitCompletedNormally);
+    send(sender, "reorderStage1Remaining=" +
+                     PasteHookStatus.reorderStage1Remaining.get() +
+                     " reorderStage2Remaining=" +
+                     PasteHookStatus.reorderStage2Remaining.get() +
+                     " reorderStage3Remaining=" +
+                     PasteHookStatus.reorderStage3Remaining.get() +
+                     " blockMapPlacementsThisResume=" +
+                     PasteHookStatus.blockMapPlacementsThisResume.get() +
+                     " stage3ChainsThisResume=" +
+                     PasteHookStatus.stage3ChainsThisResume.get());
+    send(sender,
+         "deadlineYieldCount=" + PasteHookStatus.deadlineYieldCount.get() +
+             " blockMapDeadlineYields=" +
+             PasteHookStatus.blockMapDeadlineYields.get() +
+             " stage3DeadlineYields=" +
+             PasteHookStatus.stage3DeadlineYields.get());
+    send(sender,
+         "deadlineBudgetNanos=" + PasteHookStatus.deadlineBudgetNanos.get() +
+             " deadlineRemainingNanosAtResumeEntry=" +
+             PasteHookStatus.deadlineRemainingNanosAtResumeEntry.get() +
+             " deadlineRemainingNanosAtFirstPlacement=" +
+             PasteHookStatus.deadlineRemainingNanosAtFirstPlacement.get() +
+             " resumeElapsedNanos=" +
+             PasteHookStatus.resumeElapsedNanos.get() +
+             " placementsThisResume=" +
+             PasteHookStatus.placementsThisResume.get() +
+             " deadlineExpiredAtEntry=" +
+             PasteHookStatus.deadlineExpiredAtEntry.get() +
+             " deadlineExpiredAfterFirstPlacement=" +
+             PasteHookStatus.deadlineExpiredAfterFirstPlacement.get());
+    send(sender,
+         "commitStateElapsedWallMillis=" +
+             PasteHookStatus.commitStateElapsedWallMillis.get() +
+             " commitStateActiveServerMillis=" +
+             PasteHookStatus.commitStateActiveServerMillis.get() +
+             " maxResumeStage=" + PasteHookStatus.maxCommitResumeStage +
+             " maxResumePlacements=" +
+             PasteHookStatus.maxCommitResumePlacements.get() +
+             " maxResumeChains=" +
+             PasteHookStatus.maxCommitResumeChains.get() +
+             " maxResumeBeganExpired=" +
+             PasteHookStatus.maxCommitResumeBeganExpired +
+             " maxDownstreamMutationDestinationChunk=" +
+             PasteHookStatus.maxDownstreamMutationDestinationChunk +
+             " maxDownstreamMutationMillis=" +
+             OverdriveEditSummary.ms(
+                 PasteHookStatus.maxDownstreamMutationNanos.get()));
+    send(sender, "lastPasteGraphDiagnostic=" +
+                     PasteHookStatus.lastPasteGraphDiagnostic);
+    send(sender, "pasteRuntimeShape=" + PasteHookStatus.runtimeShape() +
+                     " forwardExtentCopySeen=" +
+                     PasteHookStatus.forwardExtentCopySeen() +
+                     " pasteRuntimeShapeCompatible=" +
+                     PasteHookStatus.runtimeShapeCompatible() +
+                     " pasteBytecodeModified=" +
+                     PasteHookStatus.pasteBytecodeModified);
+    send(sender, "pasteHookReason=" + PasteHookStatus.hookReason);
+    send(sender,
+         "coordinator=" + (coordinator == null ? "stopped" : "running") +
+             " workers=" + c.preparationWorkers +
+             " globalMemory=" + c.maxPreparedBytes +
+             " operationMemory=" + c.maxPreparedBytesPerOperation +
+             " commitTick=" + OverdriveEditSummary.ms(c.commitBudgetNanos) +
+             "ms");
+    if (coordinator != null) {
+      List<String> operations = coordinator.ownedOperationDescriptions();
+      CoordinatorStatistics statistics = coordinator.statistics();
+      send(sender, "sharedOperations queuedOrActive=" + operations.size());
+      send(sender, "sharedQueue readyUnits=" + statistics.readyChunks +
+                       " activeWorkers=" + statistics.activeWorkers +
+                       " retainedAndQueueBytes=" + statistics.preparedBytes +
+                       " memoryLimit=" + statistics.preparedByteLimit +
+                       " slicesThisTick=" + statistics.commitsThisTick);
+      for (String operation : operations)
+        send(sender, operation);
+    }
+  }
+  private void cancel(ICommandSender sender, String text) {
+    OverdriveCoordinator coordinator = mod.getCoordinator();
+    if (coordinator == null) {
+      send(sender, "Coordinator is stopped");
+      return;
+    }
+    try {
+      long id = Long.parseLong(text);
+      send(sender, coordinator.cancelOwner(id)
+                       ? "Cancellation accepted for operation " + id
+                       : "No cancellable operation " + id);
+    } catch (NumberFormatException invalid) {
+      send(sender, "Invalid operation id: " + text);
+    }
+  }
+  private void stats(ICommandSender sender) {
+    OverdriveEditSummary s = OverdriveSummaries.latest();
+    if (s == null) {
+      send(sender, "No accelerated operation snapshot");
+      return;
+    }
+    send(sender, s.format());
+    send(sender, "packets: sparse=" + s.sparsePackets +
+                     " chunk=" + s.chunkPackets + " tile=" + s.tilePackets +
+                     " result=" + (s.success ? "SUCCESS" : "FAILURE") +
+                     (s.failedPhase == null ? ""
+                                            : " phase=" + s.failedPhase +
+                                                  " error=" + s.failureText));
+  }
+  private static void send(ICommandSender sender, String text) {
+    sender.addChatMessage(
+        new ChatComponentText("[WorldEditOverdrive] " + text));
+  }
+  private static String active(boolean installed) {
+    return installed ? "ACTIVE" : "UNAVAILABLE";
+  }
+  private static String hooked(boolean installed) {
+    return installed ? "HOOKED" : "UNAVAILABLE";
+  }
 }

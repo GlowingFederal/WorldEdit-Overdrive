@@ -492,3 +492,20 @@ ownership are non-negotiable semantics. Chunk-oriented primitive desired state,
 immutable snapshots, bounded history, explicit processors/effects, and the
 existing fair tick-budgeted coordinator are the performance core. Hybrid
 raw/native execution is normal; whole-operation fallback is exceptional.
+
+## Implemented shared scheduling boundary
+
+`OverdriveCoordinator` is now the sole scheduler and worker-pool owner for accelerated
+work. It admits `MutationOperationOwner` instances with an up-front memory reservation,
+per-owner concurrency limit, bounded executor submission, round-robin tick slices, and a
+single adaptive absolute deadline. Its terminal path releases retained bytes before
+notifying completion, failure, or cancellation listeners, including during shutdown.
+
+Only the standard paste owner currently implements this retained-operation contract.
+The remaining command and import adapters in this plan are still design work and are not
+safe to label ACTIVE merely because their bytecode hook installed. In particular,
+clipboard copy, schematic/structure import, arbitrary masks/patterns, and complete
+source-before-mutation stack/move adapters remain unsupported by the shared pipeline.
+They require pre-mutation rejection when a bounded graph cannot be proven; no large
+unsupported graph should be redirected into an Overdrive-owned synchronous completion
+loop.

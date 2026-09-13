@@ -545,3 +545,26 @@ whole Minecraft tick.
   drain. `LocalSession.remember` invokes it again. These exact semantics require limiting
   the input population before every drain; moving the EditSession or live world to a
   worker was rejected as unsafe.
+
+## Shared-coordinator integration
+
+Deferred paste is now an admitted `MutationOperationOwner` of `OverdriveCoordinator`.
+Admission reserves the estimated clipboard footprint before capture and atomically checks
+the 64 MiB per-operation limit, 128 MiB global limit, and a two-operation per-player
+limit. Reservation growth is rejected before publishing a larger snapshot. Completion,
+failure, cancellation, and shutdown remove the owner and release the complete
+reservation.
+
+The coordinator's bounded preparation executor is the only worker pool. Paste planning
+receives only `PreparedClipboardView`, whose primitive arrays and copied block/NBT/entity
+state were captured on the server thread. Queue rejection fails the operation rather
+than growing a hidden queue. The server tick uses one adaptive absolute deadline for
+both retained paste owners and prepared chunk commits, rotating unfinished owners after
+each slice.
+
+`/overdrive status` lists operation ID, player owner, current phase, and retained bytes.
+`/overdrive cancel <id>` removes a pre-mutation queued, capturing, or planning owner,
+releases its reservation, and reports cancellation without sending paste success.
+Cancellation is currently refused once paste mutation or finalization begins because
+Enhanced's retained reorder graph has no proven abort primitive that can both discard
+pending writes and publish committed-prefix history safely.

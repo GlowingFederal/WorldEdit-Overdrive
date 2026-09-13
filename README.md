@@ -1,14 +1,17 @@
 # WorldEdit Overdrive
 
-Enhanced 6.3.0 runtime acceleration now covers `//set`, `//paste`, `//replace`,
+Enhanced 6.3.0 has exact runtime hooks for `//set`, `//paste`, `//replace`,
 `//walls`, `//faces`/`//outline`, `//center`, `//stack`, `//move`, `//overlay`,
-and `//naturalize`. `/overdrive status` derives each ACTIVE label from the exact
-EditSession hook installation and exposes per-family bridge and completion counters.
+and `//naturalize`. Only the compatible constant `//set` path and exact standard
+`PasteBuilder` graph currently have implemented acceleration owners. The remaining
+hooks preserve Enhanced's native behavior and must not be interpreted as deferred,
+tick-bounded acceleration. `/overdrive status` distinguishes installed hooks from
+completed acceleration counters.
 
-The Stage 5A backend now includes a generalized, tick-budgeted phased operation
-plan for future reorder-aware operations. See
-[`docs/stage-5a-phased-engine.md`](docs/stage-5a-phased-engine.md). Clipboard
-paste, destination snapshots, and history redesign remain future stages.
+The Stage 5 backend includes a generalized phased plan, immutable snapshot/history
+foundations, and a shared coordinator used by deferred paste. See
+[`docs/stage-5a-phased-engine.md`](docs/stage-5a-phased-engine.md) and
+[`docs/stage-5c-paste-foundation.md`](docs/stage-5c-paste-foundation.md).
 
 Stage 4.6 dedicated-server installation, diagnostics, compatibility decisions,
 and the live verification matrix are documented in
@@ -65,3 +68,28 @@ The active hook is fail-open across unsupported Enhanced bytecode: `/overdrive s
 The Stage 5 design gate for generalized hybrid WorldEdit operations and large
 clipboard pastes is documented in
 [`docs/stage-5-generalized-operation-plan.md`](docs/stage-5-generalized-operation-plan.md).
+
+## Shared operation coordinator
+
+All currently admitted asynchronous work uses one `OverdriveCoordinator`. The
+coordinator owns the bounded preparation pool and queue, one adaptive deadline for the
+entire server tick, round-robin retained-operation scheduling, global/per-operation
+memory accounting, and a two-operation per-player admission cap. Deferred paste no
+longer owns a worker pool, queue, budget, or memory counter. Reservations are acquired
+before clipboard capture and are released on completion, rejection, failure,
+cancellation, or server shutdown.
+
+Operators can inspect admitted operation IDs, owners, phases, and retained bytes with
+`/overdrive status`, and request safe pre-mutation cancellation with
+`/overdrive cancel <id>`. Cancellation never reports command success. A paste already
+committing cannot currently be cancelled because Enhanced exposes no proven safe way to
+discard its retained reorder graph while publishing committed-prefix history.
+
+The support matrix at the top of this file describes installed hooks, not a claim that
+all commands are deferred. In this source revision, the shared retained-owner path is
+wired only for the exact standard `PasteBuilder` graph described in the Stage 5C
+documentation. `//copy`, schematic/structure loading, and the replace, geometry,
+overlay, naturalize, stack, and move hooks do not yet have complete bounded adapters and
+must not be reported as asynchronously accelerated. Unsupported graphs are rejected
+before Overdrive mutation or left on Enhanced's original path only where that unchanged
+native behavior is explicitly safe for the command boundary.
