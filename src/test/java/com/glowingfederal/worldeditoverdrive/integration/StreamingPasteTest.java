@@ -123,6 +123,14 @@ public class StreamingPasteTest {
         cursor.accept(second);cursor.apply(sink,0);assertTrue(heights.isEmpty());assertFalse(cursor.consumed());
         cursor.apply(sink,Long.MAX_VALUE);assertEquals(Arrays.asList(1,0),heights);assertTrue(cursor.finishBatch());cursor.close();
     }
+    @Test public void failedMutationReleasesProfilingScopeAndRecord()throws Exception{
+        PasteCommitCursor cursor=new PasteCommitCursor();PasteStreamStorage.Batch batch=new PasteStreamStorage.Batch();
+        batch.records.add(PasteDiskJournal.Record.block(Vector.ZERO,null,new BaseBlock(1),512));cursor.accept(batch);
+        try{cursor.apply(new NullExtent(){public boolean setBlock(Vector p,BaseBlock b){throw new IllegalStateException("callback failure");}},Long.MAX_VALUE);fail();}
+        catch(IllegalStateException expected){assertEquals("callback failure",expected.getMessage());}
+        finally{cursor.close();}
+        assertFalse(PlacementMutationBridge.active());
+    }
 
     @Test public void productionSchedulerResumesPasteMoreThanOncePerTick()throws Exception{
         Fixture f=new Fixture(64,1,1);for(int x=0;x<64;x++)f.clipboard.setBlock(new Vector(x,0,0),new BaseBlock(1));

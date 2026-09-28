@@ -13,6 +13,7 @@ import java.util.List;
 final class PasteStreamStorage implements Closeable {
     static final long STATE_BYTES = 256L << 10;
     final PasteMemoryBudget.Account memory;
+    final PlacementProfile placement=new PlacementProfile();
     File directory;
     PasteDiskJournal stage1, stage2, stage3, historyBlocks, historyEntities, entities;
     PasteDiskIndex index;

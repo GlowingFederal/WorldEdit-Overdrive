@@ -8,6 +8,7 @@ import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
 import com.glowingfederal.worldeditoverdrive.integration.PasteHookStatus;
 import com.glowingfederal.worldeditoverdrive.integration.DeferredPasteManager;
 import com.glowingfederal.worldeditoverdrive.integration.CommandHookStatus;
+import com.glowingfederal.worldeditoverdrive.integration.PlacementProfile;
 import com.glowingfederal.worldeditoverdrive.execution.AdaptiveServerBudget;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
@@ -22,12 +23,13 @@ public final class OverdriveCommand extends CommandBase {
     private final WorldEditOverdrive mod;
     OverdriveCommand(WorldEditOverdrive mod){this.mod=mod;}
     public String getCommandName(){return "overdrive";}
-    public String getCommandUsage(ICommandSender sender){return "/overdrive <status|stats|preparation|placement|history|pacing|paste|undo|redo> [preparation|placement|pacing]";}
+    public String getCommandUsage(ICommandSender sender){return "/overdrive <status|stats|preparation|placement|history|pacing|paste|undo|redo|profiling> [view]; profiling [sample|full|off|native|optimized]";}
     public int getRequiredPermissionLevel(){return 2;}
     public List getCommandAliases(){return Arrays.asList("worldeditoverdrive");}
     public void processCommand(ICommandSender sender,String[] args){
         if(args.length<1||args.length>2){send(sender,getCommandUsage(sender));return;}
         String command=args[0].toLowerCase(java.util.Locale.ROOT),view=args.length==2?args[1].toLowerCase(java.util.Locale.ROOT):"all";
+        if(command.equals("profiling")){profiling(sender,view);return;}
         if(args.length==2&&(!(command.equals("paste")||command.equals("undo")||command.equals("redo"))||!(view.equals("preparation")||view.equals("placement")||view.equals("pacing")))){send(sender,getCommandUsage(sender));return;}
         if("status".equalsIgnoreCase(args[0]))status(sender);
         else if("stats".equalsIgnoreCase(args[0]))stats(sender);
@@ -40,7 +42,8 @@ public final class OverdriveCommand extends CommandBase {
         else send(sender,getCommandUsage(sender));
     }
     public List addTabCompletionOptions(ICommandSender sender,String[] args){
-        if(args.length==1)return getListOfStringsMatchingLastWord(args,"status","stats","preparation","placement","history","pacing","paste","undo","redo");
+        if(args.length==1)return getListOfStringsMatchingLastWord(args,"status","stats","preparation","placement","history","pacing","paste","undo","redo","profiling");
+        if(args.length==2&&args[0].equalsIgnoreCase("profiling"))return getListOfStringsMatchingLastWord(args,"sample","full","off","native","optimized");
         if(args.length==2&&(args[0].equalsIgnoreCase("paste")||args[0].equalsIgnoreCase("undo")||args[0].equalsIgnoreCase("redo")))return getListOfStringsMatchingLastWord(args,"preparation","placement","pacing");return null;
     }
     private static void preparation(ICommandSender sender){
@@ -49,6 +52,16 @@ public final class OverdriveCommand extends CommandBase {
         send(sender,"capturePagesResident="+PasteHookStatus.pasteCapturePagesResident.get()+" capturePagesReleased="+PasteHookStatus.pasteCapturePagesReleased.get()+" workerTasksCompleted="+PasteHookStatus.pasteWorkerTasksCompleted.get()+" workerTasksSubmitted="+PasteHookStatus.pasteWorkerTasksSubmitted.get()+" workerTasksActive="+PasteHookStatus.pasteWorkerActive.get());
         send(sender,"captureTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.captureTargetNanos.get())+" submissionTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.submissionTargetNanos.get())+" liveMemoryBytes="+PasteHookStatus.pasteLiveMemoryBytes.get()+" peakLiveMemoryBytes="+PasteHookStatus.pastePeakLiveMemoryBytes.get()+" spillBytes="+PasteHookStatus.pasteSpillBytes.get()+" waitReason="+PasteHookStatus.pastePacing.waitReason());
         pacingRates(sender,PasteHookStatus.pastePacing);
+    }
+    private static void profiling(ICommandSender sender,String mode){
+        if(mode.equals("sample"))PlacementProfile.sampleEvery=64;
+        else if(mode.equals("full"))PlacementProfile.sampleEvery=1;
+        else if(mode.equals("off"))PlacementProfile.sampleEvery=0;
+        else if(mode.equals("native"))PlacementProfile.optimized=false;
+        else if(mode.equals("optimized"))PlacementProfile.optimized=true;
+        else if(!mode.equals("all")){send(sender,"profiling [sample|full|off|native|optimized]");return;}
+        if(!mode.equals("all"))send(sender,"Profiling mode: optimized="+PlacementProfile.optimized+" sampleEvery="+PlacementProfile.sampleEvery+". Use a new equivalent paste for each comparison; mode changes do not reset the current profile.");
+        PlacementProfile p=PlacementProfile.latest;if(p==null)send(sender,"No accelerated mutation profile yet");else for(String line:p.describe())send(sender,line);
     }
     private static void placement(ICommandSender sender){
         send(sender,"Paste placement: operation="+PasteHookStatus.pasteOperationId+" stage="+PasteHookStatus.pastePlacementStage+" committedMutations="+PasteHookStatus.pasteCommittedBlocks.get()+" remainingMutations="+PasteHookStatus.commitRemaining.get()+" complete="+PasteHookStatus.commitCompletedNormally);

@@ -311,6 +311,7 @@ public final class DeferredPasteManager {
             if(commitStage<=3){
                 if(commitCursor.batch==null){if(workerResult!=null){commitCursor.accept((PasteStreamStorage.Batch)workerResult);workerResult=null;}else{final int stage=commitStage;job(new Callable<Object>(){public Object call()throws Exception{return storage.readBatch(stage);}});return;}}
                 long start=System.nanoTime(),changedBefore=commitCursor.changed,tilesBefore=commitCursor.tiles;PasteHookStatus.incrementalCommitSlices.incrementAndGet();
+                commitCursor.profile=storage.placement;
                 commitCursor.apply(extent.getExtent(),deadline,hardDeadline,reorderBudget);long placements=commitCursor.placements;
                 committed+=commitCursor.changed-changedBefore;PasteHookStatus.pasteCommittedTiles.addAndGet(commitCursor.tiles-tilesBefore);mutation|=placements!=0;
                 long n=System.nanoTime()-start;resumeStatistics.record(n,Math.max(0,deadline-start));PasteHookStatus.commitResumeCalls.incrementAndGet();
@@ -321,7 +322,7 @@ public final class DeferredPasteManager {
             if(!downstreamStarted){downstream=adapter.destination.commit();downstreamStarted=true;PasteHookStatus.commitOperationClass=downstream==null?"none":downstream.getClass().getName();}
             RunContext run=new RunContext();
             while(downstream!=null&&System.nanoTime()<deadline){EnhancedReorderYieldBridge.beginSlice(deadline);try{downstream=downstream.resume(run);}finally{EnhancedReorderYieldBridge.endSlice();}}
-            if(downstream!=null)return;state=State.FINALIZING;finalizationStarted=System.nanoTime();PasteHookStatus.topLevelCommitReturnedNull=true;
+            if(downstream!=null)return;storage.placement.finish();state=State.FINALIZING;finalizationStarted=System.nanoTime();PasteHookStatus.topLevelCommitReturnedNull=true;
         }
         void entities(long deadline)throws Exception{
             if(batch==null){if(workerResult!=null){batch=(PasteStreamStorage.Batch)workerResult;workerResult=null;batchOffset=0;}else{job(new Callable<Object>(){public Object call()throws Exception{return storage.readBatch(4);}});return;}}

@@ -109,6 +109,7 @@ Use them with a single slash in game, or without the slash in the console.
 | `/overdrive placement` | Following actual block, tile and entity placement for the latest paste |
 | `/overdrive pacing` | Understanding the latest pacing decision, server headroom and reasons work is waiting |
 | `/overdrive history` | Checking the latest undo and redo separately |
+| `/overdrive profiling` | Sampled downstream mutation costs and expensive block/region categories for the latest paste or replay |
 
 `/overdrive paste`, `/overdrive undo` and `/overdrive redo` show combined progress
 for that operation type. Each also accepts `preparation`, `placement` or `pacing`:
@@ -129,6 +130,14 @@ recently visited controller; use a scoped pacing command for paste, undo or redo
 In status output, `HOOKED` means an integration hook is present, not that the
 command is accelerated. The `operationSupport` line distinguishes this from
 `ACTIVE`; individual operations must still pass compatibility checks.
+
+Mutation profiling samples roughly one placement in 64 by default. Operators can
+use `/overdrive profiling full`, `sample` or `off` to change detailed sampling.
+`/overdrive profiling native` disables the downstream optimizations for comparison;
+`optimized` restores them. These controls apply until server restart. Use equivalent
+fresh pastes for comparisons, and see the [mutation audit](docs/worldedit-enhanced-integration.md#downstream-world-mutation-audit)
+for coverage and timing limits. Profiling controls do not start edits or change the
+server pacing budget.
 
 ## Configuration
 

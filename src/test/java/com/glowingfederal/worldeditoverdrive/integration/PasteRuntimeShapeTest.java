@@ -50,6 +50,34 @@ public class PasteRuntimeShapeTest {
         }
         EnhancedReorderYieldBridge.prepareHooks();assertTrue(EnhancedReorderYieldBridge.isSupported());assertTrue(PasteHookStatus.historyCommandHookInstalled);assertTrue(PasteHookStatus.historySessionHookInstalled);
     }
+    @Test public void downstreamHooksVerifyAgainstActualPinnedForgeAndEnhancedBytecode()throws Exception{
+        WorldMutationTransformer transformer=new WorldMutationTransformer();
+        String[] names={"com.sk89q.worldedit.forge.ForgeWorld","net.minecraft.world.World","net.minecraft.world.chunk.Chunk","net.minecraft.server.management.PlayerManager$PlayerInstance","com.sk89q.worldedit.forge.TileEntityUtils","net.minecraft.world.WorldServer"};
+        for(String name:names){
+            InputStream input=getClass().getClassLoader().getResourceAsStream(name.replace('.','/')+".class");assertNotNull(name,input);ByteArrayOutputStream output=new ByteArrayOutputStream();byte[] buffer=new byte[8192];try{int n;while((n=input.read(buffer))!=-1)output.write(buffer,0,n);}finally{input.close();}
+            byte[] original=output.toByteArray(),modified=transformer.transform(name,name,original);
+            assertFalse(name+" hooks="+PlacementProfile.forgeHook+" / "+PlacementProfile.lightingHook+" / "+PlacementProfile.chunkHook+" / "+PlacementProfile.clientHook,Arrays.equals(original,modified));
+            ClassNode node=new ClassNode();new ClassReader(modified).accept(node,0);
+            for(MethodNode method:node.methods)if((method.access&(Opcodes.ACC_ABSTRACT|Opcodes.ACC_NATIVE))==0)new Analyzer(new BasicVerifier()).analyze(node.name,method);
+        }
+    }
+    @Test public void indexedClientMarksRetainAllUnsignedCoordinatesAndDeduplicate(){
+        ClientUpdateIndex index=new ClientUpdateIndex();short[] positions=new short[65536];int count=0;
+        for(int key=0;key<65536;key++){short position=(short)key;assertFalse(index.duplicate(positions,count,position));positions[count++]=position;}
+        for(int key=0;key<65536;key++)assertTrue(index.duplicate(positions,count,(short)key));
+        index.reset();assertFalse(index.duplicate(positions,0,(short)65535));
+    }
+    @Test public void clientIndexAcceptsInterleavedNativeMarksAndSendResets(){
+        ClientUpdateIndex index=new ClientUpdateIndex();short[] positions={1,2,3,4};
+        assertTrue(index.duplicate(positions,2,(short)1));assertFalse(index.duplicate(positions,2,(short)3));
+        assertTrue(index.duplicate(positions,4,(short)4));
+        index.reset();positions[0]=9;positions[1]=10;assertFalse(index.duplicate(positions,2,(short)1));assertTrue(index.duplicate(positions,2,(short)9));
+    }
+    @Test public void profileOffStillCountsAttemptsAndProfileContainsNoWorldReference(){
+        int old=PlacementProfile.sampleEvery;try{PlacementProfile.sampleEvery=0;PlacementProfile p=new PlacementProfile();p.begin(0,10,0,1,false);p.end();assertEquals(1,p.attempts);assertEquals(0,p.samples);
+            for(java.lang.reflect.Field f:PlacementProfile.class.getDeclaredFields())assertFalse(f.getType().getName().startsWith("net.minecraft"));
+        }finally{PlacementProfile.sampleEvery=old;}
+    }
     private static ClassNode shape(){
         ClassNode n=new ClassNode();n.name="com/sk89q/worldedit/function/operation/ForwardExtentCopy";n.superName="java/lang/Object";n.interfaces=Arrays.asList("com/sk89q/worldedit/function/operation/Operation");
         String[][] f={{"source","Lcom/sk89q/worldedit/extent/Extent;"},{"destination","Lcom/sk89q/worldedit/extent/Extent;"},{"region","Lcom/sk89q/worldedit/regions/Region;"},{"from","Lcom/sk89q/worldedit/Vector;"},{"to","Lcom/sk89q/worldedit/Vector;"},{"repetitions","I"},{"sourceMask","Lcom/sk89q/worldedit/function/mask/Mask;"},{"removingEntities","Z"},{"sourceFunction","Lcom/sk89q/worldedit/function/RegionFunction;"},{"transform","Lcom/sk89q/worldedit/math/transform/Transform;"},{"currentTransform","Lcom/sk89q/worldedit/math/transform/Transform;"},{"lastVisitor","Lcom/sk89q/worldedit/function/visitor/RegionVisitor;"},{"affected","I"}};

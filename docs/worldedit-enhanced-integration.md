@@ -3,7 +3,9 @@
 WorldEdit Overdrive is a Forge 1.7.10 addon for WorldEdit Enhanced 6.3.0.
 Standard supported clipboard pastes use incremental server-thread capture,
 immutable worker planning, and server-thread submission and reorder commit.
-Enhanced remains authoritative for mutation, ordering, history, and world updates.
+Enhanced remains authoritative for ordering, history and block semantics. Scoped
+mutation hooks retain native chunk/lifecycle/physics behavior while indexing
+client update duplicates and avoiding proven unchanged optical checks.
 
 ## Current command support
 
@@ -384,3 +386,170 @@ unit suite. Those checks do not establish real Forge entity/lighting behavior,
 cold LaunchWrapper boot, or successful completion of the 654 MiB schematic.
 The supplied large-run logs establish admission and bounded progressing capture,
 but stop during preparation; full paste, undo and redo still require server testing.
+
+## Downstream world mutation audit
+
+This audit uses the pinned Curse artifact `5879351`, its Enhanced reference sources,
+and the cached Forge 1.7.10-10.13.4.1614 sources and class files. Modern FAWE and
+the inactive raw fill writer are not the accelerated paste backend.
+
+The physical commit path is:
+
+```text
+PasteCommitCursor.place(record.position(), record.block)
+  -> PasteStreamingExtent.getExtent().setBlock
+  -> BlockBagExtent -> DataValidatorExtent
+  -> BEFORE_CHANGE event extent, if installed
+  -> LastAccessExtentCache -> ChunkLoadingExtent
+  -> BlockQuirkExtent -> SurvivalModeExtent -> FastModeExtent(enabled=false)
+  -> ForgeWorld.setBlock(position, block, notifyAndLight=true)
+  -> World.getChunkFromChunkCoords -> Chunk.func_150807_a
+  -> optional Enhanced NBTConverter / TileEntityUtils / FMP compatibility
+  -> World.func_147451_t -> updateLightByType(Sky and Block)
+  -> World.markBlockForUpdate -> WorldManager -> PlayerManager / PlayerInstance
+  -> World.notifyBlockChange -> six notifyBlockOfNeighborChange callbacks
+  -> optional comparator propagation
+```
+
+The reverse traversal through delegates preserves custom event extents; they may
+add work or override behavior. The exact stock `ForgeWorld`/`WorldServer`/`Chunk`
+read optimization falls back for subclasses and invalid coordinates.
+
+| Responsibility | Before this pass | Current handling |
+| --- | --- | --- |
+| Native chunk lookup | ForgeWorld lazy ID/meta reads use two world lookups, then the write looks up the chunk again | One scoped chunk lookup shared by lazy ID/meta and the following write for stock server classes; scope ends after that placement |
+| Block state equality | Preparation filters identical ordinary states; reorder reads existing state; native chunk checks current ID/meta | Retained because masks, custom extents, intervening ticks and callbacks may change the live state |
+| Storage and sections | Chunk creates ExtendedBlockStorage, writes ID and metadata, maintains section counts | Native chunk method retained; no raw array writes |
+| Metadata | Forge writes metadata before `breakBlock`, then again afterward | Both retained: the first makes callbacks see valid world state; the second restores the requested metadata after callbacks |
+| Precipitation/height maps | Precipitation cache invalidation; column relight or whole skylight map on first high section creation | Native behavior retained |
+| Skylight | Height changes can call `markBlocksDirtyVertical`, update the column and four adjacent columns over a vertical range; opacity changes flag lazy gap checks | Retained and sampled separately from block-light checks |
+| Block light | ForgeWorld explicitly calls the combined Sky/Block light check even after native chunk work | Only successful replacements between allowlisted opaque vanilla cubes skip this additional check when optical inputs do not change; air, transparent, emitting, NBT, modded and subclass paths retain it |
+| Block callbacks | Old pre-destroy and break callbacks, then new on-added callback | Retained, including their world mutations and scheduling |
+| Tile lifecycle | Forge `shouldRefresh`, tile removal/default creation, metadata update; Enhanced NBT/FMP override and description packet | Retained without reimplementing the FMP or modded tile boundary |
+| Chunk dirty state | Chunk sets `isModified`; lighting and tiles can also dirty state | Retained; a cheap assignment, not a confirmed dominant cost |
+| Neighbor physics | Six direct neighbor callbacks per ForgeWorld call, including unsuccessful/no-op writes; callbacks can cause further work | Retained, including comparator propagation. Reorder does not prove boundary-only notification sufficient |
+| Scheduled updates | Created only when callbacks/block behavior request them | Retained; profiler counts scheduled method calls, including delegation, rather than claiming successful unique queue inserts |
+| Client update marking | Marks each position, then Forge linearly searches the growing changed-position list | Scoped exact unsigned-short index eliminates the repeated scan; native list, section flags, packet selection, watcher filtering and changed tile packets remain authoritative |
+| Render marking | Server world listeners receive light/range markers; actual client rendering follows client packet processing | Native behavior retained; client render cost and packet serialization outside the placement scope are not timed here |
+| History | Submission reads previous state for equality/NBT sizing, then native ChangeSetExtent reads it again to capture disk history; commit is below history/masks/limits | No duplicate history during commit. Submission's extra read remains to preserve event/mask evaluation and live capture ordering; it is not a second history serialization |
+
+The cursor now checks chunk existence once per attempted ordinary placement rather
+than twice, and shares its one elapsed-time result between the maximum-mutation
+diagnostic and pacing feedback. NBT-presence accounting is also shared. Deadline
+checks still occur between placements. There is one position allocation per disk
+record placement; mutating/reusing a position object would break extents that retain
+that position. Expensive group strings, sorting and percentiles are sampled or
+computed only when an operator reads diagnostics. No per-block log was added.
+
+Enhanced's existing `shouldPlaceLast` removal writes AIR then the desired block
+immediately during submission. Both writes can run lighting, lifecycle, neighbor
+and client marking; ice removal has another native quirk write. These transitions
+remain intact because their intermediate callbacks are meaningful. They are
+profiled as individual mutations. Queue stage boundaries do not independently
+repeat lighting repair, and no native history extent is traversed during disk commit.
+
+### Flags, lighting and synchronization decisions
+
+`World.setBlock` flag 1 controls neighbor/comparator notification, flag 2 client
+marking, and flag 4 client-side render marking. None suppresses its immediate
+`func_147451_t` call or the chunk method's internal lighting. Enhanced bypasses
+`World.setBlock` and directly invokes `Chunk.func_150807_a`, then performs its own
+light/client/neighbor work; changing world flags would not change this paste path.
+Forge snapshot capture in `World.setBlock` was already bypassed by Enhanced and
+has not been newly bypassed here.
+
+The chunk's lazy `recheckGaps` work complements immediate column/height work. It
+does not establish that immediate lighting can safely be omitted for arbitrary
+edits. `ForgeWorld` inherits empty `fixAfterFastMode` and `fixLighting` methods
+from AbstractWorld; simply enabling fast mode is not a complete repair strategy.
+The inactive `ForgeChunkWriter.generateSkylightMap` finalizer is also insufficient
+as a proof of cross-chunk block-light repair, so it is not reused for paste.
+
+An opaque platform raised far above terrain can update many Y positions in the
+changed and adjacent columns. Replacing an opaque block with another opaque block
+usually leaves the height and light unchanged. This is a source-supported
+explanation for differing costs, not a measured attribution of the reported
+200–230 / 1,600 / >10,000 placements per second. Underground/transparent/emissive
+edits must be measured separately. Native light propagation requires neighboring
+chunks within 17 blocks and can refuse work when they are absent; this pass retains
+that native loading/repair behavior rather than inventing an unbounded repair queue.
+
+Client packets were already tick-batched. The newly eliminated work is Forge's
+growing duplicate search before those packets. For N unique marks in one watcher
+between sends, that search performs N(N-1)/2 comparisons. The lazy 8 KiB bit index
+does O(N) total indexing and constant membership checks. It synchronizes native
+marks appended between accelerated calls and resets before a chunk update send.
+It does not truncate Forge's changed-tile list at 64 or bypass pending initial
+chunk delivery. The index belongs to the native watcher and holds no world reference;
+it is additional native synchronization memory, not a paste-sized retained set.
+
+No lighting, physics, dirtying or network phase is deferred. The same server-thread
+scheduler, budgets, streamed queues/history and lifecycle still own placement.
+There is no new unbounded final repair, worker world access or success-before-repair
+path. These decisions leave height/skylight propagation as a major candidate for
+the remaining open-air cost; broad repair batching needs real runtime evidence and
+correctness comparisons before replacing it.
+
+### Profiling and real-world acceptance
+
+`/overdrive profiling` shows the most recently mutated paste/replay profile. Its
+native-hook status distinguishes unavailable hooks from zero observed work.
+Class-shape failures return the original bytecode. Hooks match MCP/SRG names and
+use Forge's deobfuscating remapper for production names/descriptors without moving
+the existing core-plugin loading order. Dedicated-server code references no client
+classes.
+
+- `sample` uses a deterministic pseudorandom approximately 1/64 sample, avoiding
+  a fixed spatial stride through raster records; `full` samples every placement;
+  `off` disables detailed sampling. Basic attempts and optimization counters remain.
+- `native` disables the downstream read/light/client-index optimizations;
+  `optimized` restores them. Controls are operator-only, global until restart,
+  and do not reset an existing operation's totals. Begin each comparison with a
+  fresh equivalent paste and a fixed mode. Native baseline still has the profiler
+  probes and the cursor's shared timing/existence-check improvements.
+- Sample totals, mean, rolling p95, max, inclusive nested method timing, block IDs,
+  transition/opacity/emission, tile flag, chunk, Y section and height-change context
+  are reported. The 64-entry candidate table admits expensive new regions by
+  replacing a cheaper candidate; its counts cover retention, not complete global
+  type/chunk totals. Total method samples are not limited by that table.
+- Timing categories overlap and must not be summed. Only aggregation overhead is
+  labeled diagnostic aggregation; instrumentation overhead itself needs native
+  `off` versus `sample`/`full` comparisons. Overrides that bypass instrumented native
+  methods and later gap checks, server packet sends or client rendering are excluded.
+  P95 covers the latest 512 sampled placements, not the full paste distribution.
+- Use existing placement/pacing/status views for committed counts, recent rates,
+  preparation versus commit active/wall time and shared tick/server headroom. A
+  server profiler is still needed for total server-thread cost and late packet work.
+
+The repeatable runtime workloads are A: a 128x128 stone platform at Y=200 above
+open air; B: the same volume of stone replacing cobblestone in solid terrain;
+C: alternating stone/cobblestone in already-lit, loaded underground chunks. Avoid
+an identical source/destination in B/C: preparation filters those cells, so they
+would not benchmark committed mutations. Keep destination chunks and their light
+neighbors loaded, compare restored equivalent worlds, use the same clipboard and
+pacing settings, warm up once, then capture native/optimized profiles and server
+profiling for each workload. Repeat with detailed profiling off to quantify probes.
+
+| Workload | Before/after placements/sec, mean/p95/max, light/neighbor/client/chunk time, server-thread time and wall time |
+| --- | --- |
+| A: open-air platform | Not measured in this source/build environment |
+| B: terrain replacement | Not measured in this source/build environment |
+| C: cheap loaded blocks | Not measured in this source/build environment |
+
+These are real ForgeWorld workload specifications, not raw-array or mock-extent
+benchmarks. The local `run` directories have no configured runtime mods or saved
+world. Compilation, reobfuscation and unit checks do not provide these measurements.
+
+Automated checks exercise the actual pinned Enhanced/Forge class files with ASM
+verification, the complete 65,536-coordinate index, native/accelerated interleaving
+and reset, profiling-off counters and exception scope cleanup. Existing streaming
+tests cover metadata/NBT, transforms, history undo/redo and cross-page door ordering
+through their extent fixtures; they do not validate Minecraft lighting or physics.
+
+Runtime acceptance still requires comparing native and optimized final block/meta,
+tile NBT and sky/block light for stone into air, high platforms, opaque replacement,
+holes and opened/closed shafts, transparent transitions, emitting blocks and
+cross-chunk/section boundaries. Compare torches, doors, rails, falling blocks,
+redstone neighbors and modded tiles during and after placement; then save/reload,
+relog, undo and redo on integrated and dedicated servers. No claim of that runtime
+matrix or a measured throughput improvement is made by the source/build checks.

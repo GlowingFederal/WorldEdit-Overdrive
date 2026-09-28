@@ -11,6 +11,7 @@ import java.util.Map;
 @IFMLLoadingPlugin.TransformerExclusions({
         "com.glowingfederal.worldeditoverdrive.integration.OverdriveLoadingPlugin",
         "com.glowingfederal.worldeditoverdrive.integration.EditSessionSetTransformer",
+        "com.glowingfederal.worldeditoverdrive.integration.WorldMutationTransformer",
         "com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus"
 })
 public final class OverdriveLoadingPlugin implements IFMLLoadingPlugin {
@@ -18,7 +19,7 @@ public final class OverdriveLoadingPlugin implements IFMLLoadingPlugin {
         Stage4HookStatus.corePluginLoaded=true;
         OverdriveLog.info("core plugin initialized");
     }
-    public String[] getASMTransformerClass(){return new String[]{EditSessionSetTransformer.class.getName()};}
+    public String[] getASMTransformerClass(){return new String[]{EditSessionSetTransformer.class.getName(),WorldMutationTransformer.class.getName()};}
     public String getModContainerClass(){return null;}
     public String getSetupClass(){return null;}
     public void injectData(Map<String,Object> data){}

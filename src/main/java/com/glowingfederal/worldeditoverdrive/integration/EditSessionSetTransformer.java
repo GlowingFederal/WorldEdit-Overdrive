@@ -296,7 +296,7 @@ public final class EditSessionSetTransformer implements IClassTransformer {
         return node;
     }
 
-    private static final class SafeClassWriter extends ClassWriter {
+    static final class SafeClassWriter extends ClassWriter {
         private static final HierarchyResolver HIERARCHY=new HierarchyResolver();
         SafeClassWriter(int flags){super(flags);}
         protected String getCommonSuperClass(String first,String second){return HIERARCHY.commonSuperClass(first,second);}

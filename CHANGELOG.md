@@ -580,3 +580,21 @@ Changes are listed oldest to newest.
   explain temporary storage, shared-memory waits and client rendering costs.
 - Correct the integration/support documentation and label older fill behavior as
   historical. Update the in-game mod description for the 1.0.0 presentation.
+
+2026-09-28 13:27 — Audit and reduce downstream placement work
+
+- Replace Forge's growing client-update duplicate scan during accelerated paste
+  and replay with an exact bounded coordinate index, retaining native packet,
+  section, watcher and changed-tile synchronization behavior.
+- Share stock server lazy block ID/metadata reads with the following chunk lookup;
+  skip the additional optical check only for successful replacements between
+  allowlisted opaque vanilla cubes on the exact native world/chunk implementation.
+  Retain height/skylight changes, tile/FMP lifecycle, callbacks, comparator and
+  neighbor semantics, including dependency-block and ice removal transitions.
+- Reuse cursor chunk-existence and NBT checks and one mutation duration for pacing
+  and diagnostics. Preserve scheduler budgets, streamed history and reorder ownership.
+- Add bounded sampled downstream method/category profiling, hook availability,
+  exception-safe scope cleanup and operator native/optimized comparison controls.
+- Document the pinned extent/world/chunk call path, side effects, flag semantics,
+  retained behavior, profiling limits and real-world comparison workloads. Add
+  pinned-bytecode, exact client-coordinate index and cleanup regression coverage.

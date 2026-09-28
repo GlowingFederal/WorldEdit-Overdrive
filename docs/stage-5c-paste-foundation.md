@@ -31,6 +31,13 @@ reuse the current tick allowance. Submission only spends its two-chunk load cap 
 actually unloaded Forge chunks, rather than every repeated raster chunk crossing.
 Native immediate-placement exceptions and disabled queues keep their behavior.
 
+Physical placements share a bounded downstream profile and a scoped native
+mutation bridge. The bridge indexes Forge client-update duplicates, shares stock
+server lazy ID/meta reads with the ensuing chunk lookup, and omits the extra light
+check only for eligible unchanged opaque vanilla inputs. It retains native chunk
+storage, height/skylight work, tile lifecycle, callbacks and physics. See the
+[complete mutation audit and profiling controls](worldedit-enhanced-integration.md#downstream-world-mutation-audit).
+
 After stages one through three, downstream commit resumes under the retained
 deadline, then entities, history sealing, selection and success feedback complete.
 No owned path calls synchronous `flushQueue()`/`completeBlindly()`. The original

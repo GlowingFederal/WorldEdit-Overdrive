@@ -22,6 +22,7 @@ final class PasteExtentInstaller {
         } catch (Exception e) { return "Enhanced extent fields unavailable: " + e; }
     }
     static PasteStreamingExtent install(EditSession session, PasteStreamStorage storage, boolean history) throws Exception {
+        PlacementProfile.latest=storage.placement;
         MultiStageReorder old = (MultiStageReorder) get(session, "reorderExtent");
         PasteStreamingExtent replacement = new PasteStreamingExtent(old.getExtent(), old.isEnabled(), storage);
         replacement.original=old;

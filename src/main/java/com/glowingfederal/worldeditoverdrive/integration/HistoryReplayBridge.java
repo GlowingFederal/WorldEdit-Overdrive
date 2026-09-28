@@ -135,11 +135,12 @@ public final class HistoryReplayBridge {
                 if(state==State.COMMIT){
                     if(commitStage<=3){
                         if(commitCursor.batch==null){if(result!=null){commitCursor.accept((PasteStreamStorage.Batch)result);result=null;}else{final int stage=commitStage;job(new Callable<Object>(){public Object call()throws Exception{return storage.readBatch(stage);}});return false;}}
+                        commitCursor.profile=storage.placement;
                         commitCursor.apply(reorder.getExtent(),deadline,hard,commitBudget);if(!commitCursor.consumed())return false;boolean done=commitCursor.finishBatch();if(done)commitStage++;return false;
                     }
                     if(!downstreamStarted){downstream=target.commit();downstreamStarted=true;}
                     while(downstream!=null&&System.nanoTime()<deadline){EnhancedReorderYieldBridge.beginSlice(deadline);try{downstream=downstream.resume(new RunContext());}finally{EnhancedReorderYieldBridge.endSlice();}}
-                    if(downstream!=null)return false;job(new Callable<Object>(){public Object call()throws Exception{storage.close();return null;}});state=State.NEXT;return false;
+                    if(downstream!=null)return false;storage.placement.finish();job(new Callable<Object>(){public Object call()throws Exception{storage.close();return null;}});state=State.NEXT;return false;
                 }
                 if(state==State.NEXT){
                     PasteExtentInstaller.restore(target,reorder);

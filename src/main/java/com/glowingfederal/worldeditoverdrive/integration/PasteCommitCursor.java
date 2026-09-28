@@ -12,6 +12,7 @@ final class PasteCommitCursor implements AutoCloseable {
     private int offset;
     long changed,tiles,placements;
     boolean pressure;
+    PlacementProfile profile=new PlacementProfile();
     private net.minecraft.world.World world;
     private long chunkTick=Long.MIN_VALUE;private int chunkLoads;boolean chunkLoadYield;
     void beginTick(long tick){if(chunkTick!=tick){chunkTick=tick;chunkLoads=0;}chunkLoadYield=false;}
@@ -28,27 +29,35 @@ final class PasteCommitCursor implements AutoCloseable {
         if(pair!=null)return;
         while(offset<batch.records.size()&&(force||System.nanoTime()<deadline)){
             PasteDiskJournal.Record r=batch.records.get(offset);
-            if(!force&&world!=null&&!world.getChunkProvider().chunkExists(r.x>>4,r.z>>4)&&chunkLoads>=2){chunkLoadYield=true;break;}
+            boolean load=world!=null&&!world.getChunkProvider().chunkExists(r.x>>4,r.z>>4);
+            if(!force&&load&&chunkLoads>=2){chunkLoadYield=true;break;}
             if(!force&&!canStart(deadline,hardDeadline,pace,r.pairWithNext?2:1))break;
             if(!force&&r.pairWithNext&&offset+1==batch.records.size()){
                 pair=r;batch.records.remove(offset);break;
             }
-            offset++;place(extent,r,pace);force=!force&&r.pairWithNext;
+            offset++;place(extent,r,pace,load);force=!force&&r.pairWithNext;
         }
     }
     private boolean canStart(long deadline,long hardDeadline,PasteSliceBudget pace,int calls){long now=System.nanoTime();return pace==null?now<deadline:pace.canStartUnit(now,deadline,hardDeadline,calls);}
     private void place(Extent extent,PasteDiskJournal.Record r,PasteSliceBudget pace)throws WorldEditException{
         boolean load=world!=null&&!world.getChunkProvider().chunkExists(r.x>>4,r.z>>4);
+        place(extent,r,pace,load);
+    }
+    private void place(Extent extent,PasteDiskJournal.Record r,PasteSliceBudget pace,boolean load)throws WorldEditException{
         if(load)chunkLoads++;
+        boolean tile=r.block.getNbtData()!=null;
+        PlacementMutationBridge.begin(profile,r.x,r.y,r.z,r.block.getId(),tile);
         long start=System.nanoTime();
-        try{if(extent.setBlock(r.position(),r.block)){changed++;if(r.block.getNbtData()!=null)tiles++;}placements++;
+        try{if(extent.setBlock(r.position(),r.block)){changed++;if(tile)tiles++;}placements++;
+        }finally{
             long nanos=System.nanoTime()-start;
             if(nanos>PasteHookStatus.maxDownstreamMutationNanos.get()){PasteHookStatus.maxDownstreamMutationNanos.set(nanos);PasteHookStatus.maxDownstreamMutationDestinationChunk=(r.x>>4)+","+(r.z>>4);PasteHookStatus.maxDownstreamMutationDetail="stream block "+r.block.getId()+":"+r.block.getData();}
-        }finally{if(pace!=null)pace.recordMutation(System.nanoTime()-start,load,r.block.getNbtData()!=null);r.release();}
+            try{PlacementMutationBridge.end();if(pace!=null)pace.recordMutation(nanos,load,tile);}finally{r.release();}
+        }
     }
     boolean consumed(){return offset==batch.records.size();}
     boolean finishBatch(){
         if(!consumed())throw new IllegalStateException("unconsumed commit batch");boolean done=batch.done&&pair==null;pressure=batch.pressure;batch.close();batch=null;return done;
     }
-    public void close(){if(batch!=null){batch.close();batch=null;}if(pair!=null){pair.release();pair=null;}}
+    public void close(){profile.finish();if(batch!=null){batch.close();batch=null;}if(pair!=null){pair.release();pair=null;}world=null;}
 }
