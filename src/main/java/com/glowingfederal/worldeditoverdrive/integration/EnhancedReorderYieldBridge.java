@@ -31,8 +31,8 @@ public final class EnhancedReorderYieldBridge {
     public static boolean isSupported(){return blockPlacerHook&&stage3Hook;}
     /** Resolve the lazy commit classes before the first command's admission check. No commit is run. */
     public static void prepareHooks(){
-        if(isSupported())return;
-        try{ClassLoader loader=EditSession.class.getClassLoader();Class.forName("com.sk89q.worldedit.function.operation.BlockMapEntryPlacer",false,loader);Class.forName("com.sk89q.worldedit.extent.reorder.MultiStageReorder$Stage3Committer",false,loader);}
+        if(isSupported()&&PasteHookStatus.historyCommandHookInstalled&&PasteHookStatus.historySessionHookInstalled)return;
+        try{ClassLoader loader=EditSession.class.getClassLoader();Class.forName("com.sk89q.worldedit.function.operation.BlockMapEntryPlacer",false,loader);Class.forName("com.sk89q.worldedit.extent.reorder.MultiStageReorder$Stage3Committer",false,loader);Class.forName("com.sk89q.worldedit.command.HistoryCommands",false,loader);}
         catch(Throwable unavailable){OverdriveLog.warn("Enhanced reorder startup hook resolution failed: {}",unavailable.toString());}
         OverdriveLog.info("Enhanced reorder hooks prepared before commands: {}",Boolean.valueOf(isSupported()));
     }

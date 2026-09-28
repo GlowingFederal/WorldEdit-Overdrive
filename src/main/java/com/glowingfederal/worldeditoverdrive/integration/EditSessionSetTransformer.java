@@ -45,6 +45,7 @@ public final class EditSessionSetTransformer implements IClassTransformer {
         String normalized=normalize(transformedName==null?name:transformedName);
         if(BLOCK_PLACER_TARGET.equals(normalized))return transformCommitResume(bytes,false);
         if(STAGE3_TARGET.equals(normalized))return transformCommitResume(bytes,true);
+        if("com.sk89q.worldedit.command.HistoryCommands".equals(normalized))return transformHistoryCommands(bytes);
         if(isPasteTarget(name,transformedName))return inspectPasteTarget(bytes);
         if(PASTE_COMMAND_TARGET.equals(normalize(transformedName))||PASTE_COMMAND_TARGET.equals(normalize(name)))return transformPasteCommand(bytes);
         if(COMMAND_TARGET.equals(transformedName))return transformCommand(name,transformedName,bytes);
@@ -158,6 +159,7 @@ public final class EditSessionSetTransformer implements IClassTransformer {
             method.instructions.insertBefore(method.instructions.getFirst(),hook);
         }
         installEnhancedCommandHooks(node);
+        installHistorySessions(node);
         Stage4HookStatus.targetMethodMatched=matches==1;
         if(matches!=1) throw new IllegalStateException("Expected exactly one Enhanced setBlocks(Region,Pattern), found "+matches);
         // Every EditSession entry hook introduces a new branch target at the
@@ -166,6 +168,7 @@ public final class EditSessionSetTransformer implements IClassTransformer {
         // control-flow change on Java 8.
         ClassWriter writer=new SafeClassWriter(ClassWriter.COMPUTE_FRAMES|ClassWriter.COMPUTE_MAXS); node.accept(writer);
         Stage4HookStatus.legacySetBlocksHookInstalled=true;
+        PasteHookStatus.historySessionHookInstalled=true;
         OverdriveLog.info("Stage 4 legacy EditSession#setBlocks hook installed; not the active /set hook ({})",Stage4HookStatus.targetNames);
         return writer.toByteArray();
         } catch(Throwable incompatible) {
@@ -180,8 +183,34 @@ public final class EditSessionSetTransformer implements IClassTransformer {
         CommandHookStatus.geometryHookInstalled=false;
         CommandHookStatus.copyMoveHookInstalled=false;
         CommandHookStatus.overlayHookInstalled=false;
+        PasteHookStatus.historySessionHookInstalled=false;
         OverdriveLog.warn("WorldEdit Overdrive: EditSession command hooks unavailable; using original bytecode ({})",reason);
         return bytes;
+    }
+
+    private byte[] transformHistoryCommands(byte[] bytes){
+        try{
+            ClassNode node=new ClassNode();new ClassReader(bytes).accept(node,ClassReader.SKIP_FRAMES);int matches=0;
+            String desc="(Lcom/sk89q/worldedit/entity/Player;Lcom/sk89q/worldedit/LocalSession;Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/minecraft/util/commands/CommandContext;)V";
+            for(MethodNode m:node.methods)if(("undo".equals(m.name)||"redo".equals(m.name))&&desc.equals(m.desc)){
+                LabelNode vanilla=new LabelNode();InsnList h=new InsnList();h.add(new VarInsnNode(Opcodes.ALOAD,0));
+                h.add(new FieldInsnNode(Opcodes.GETFIELD,node.name,"worldEdit","Lcom/sk89q/worldedit/WorldEdit;"));
+                h.add(new VarInsnNode(Opcodes.ALOAD,1));h.add(new VarInsnNode(Opcodes.ALOAD,2));h.add(new VarInsnNode(Opcodes.ALOAD,4));h.add(new InsnNode("redo".equals(m.name)?Opcodes.ICONST_1:Opcodes.ICONST_0));
+                h.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/HistoryReplayBridge","tryCommand","(Lcom/sk89q/worldedit/WorldEdit;Lcom/sk89q/worldedit/entity/Player;Lcom/sk89q/worldedit/LocalSession;Lcom/sk89q/minecraft/util/commands/CommandContext;Z)Z",false));
+                h.add(new JumpInsnNode(Opcodes.IFEQ,vanilla));h.add(new InsnNode(Opcodes.RETURN));h.add(vanilla);m.instructions.insert(h);matches++;
+            }
+            if(matches!=2)throw new IllegalStateException("expected both pinned history commands");
+            ClassWriter writer=new SafeClassWriter(ClassWriter.COMPUTE_FRAMES|ClassWriter.COMPUTE_MAXS);node.accept(writer);byte[] result=writer.toByteArray();PasteHookStatus.historyCommandHookInstalled=true;return result;
+        }catch(Throwable e){PasteHookStatus.historyCommandHookInstalled=false;OverdriveLog.warn("history command hooks unavailable: {}",e.toString());return bytes;}
+    }
+    private static void installHistorySessions(ClassNode node){
+        int matches=0;
+        for(MethodNode m:node.methods)if(("undo".equals(m.name)||"redo".equals(m.name))&&"(Lcom/sk89q/worldedit/EditSession;)V".equals(m.desc)){
+            LabelNode vanilla=new LabelNode();InsnList h=new InsnList();h.add(new VarInsnNode(Opcodes.ALOAD,0));h.add(new VarInsnNode(Opcodes.ALOAD,1));h.add(new InsnNode("redo".equals(m.name)?Opcodes.ICONST_1:Opcodes.ICONST_0));
+            h.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/HistoryReplayBridge","trySessions","(Lcom/sk89q/worldedit/EditSession;Lcom/sk89q/worldedit/EditSession;Z)Z",false));
+            h.add(new JumpInsnNode(Opcodes.IFEQ,vanilla));h.add(new InsnNode(Opcodes.RETURN));h.add(vanilla);m.instructions.insert(h);matches++;
+        }
+        if(matches!=2)throw new IllegalStateException("expected both pinned EditSession replay methods");
     }
 
     private static void installEnhancedCommandHooks(ClassNode node){

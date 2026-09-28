@@ -19,6 +19,7 @@ public final class PasteHookStatus {
     public static volatile String queueImplementationClass="unknown",editSessionExtentClass="unknown";
     public static volatile boolean queueEnabled;
     public static volatile boolean incrementalCommitSupported;
+    public static volatile boolean historyCommandHookInstalled,historySessionHookInstalled;
     public static volatile boolean topLevelCommitReturnedNull,commitCompletedNormally;
     public static volatile String commitOperationClass="none",activeCommitOperationClassBeforeResume="none",activeCommitOperationClassAfterResume="none";
     public static volatile String maxCommitResumeStage="none",maxDownstreamMutationDestinationChunk="none";
@@ -26,6 +27,12 @@ public final class PasteHookStatus {
     public static volatile String commitPacingStage="none";
     public static volatile String childResumeStage="none";
     public static volatile String captureWorkStage="IDLE",lastPasteAdmissionRejection;
+    public static volatile String pasteMemoryBackpressureReason="none",historyReplayPhase="IDLE";
+    public static final AtomicLong pasteEstimatedTotalSourceBytes=new AtomicLong(),pasteLiveMemoryBytes=new AtomicLong(),pastePeakLiveMemoryBytes=new AtomicLong(),pasteMemoryBudgetBytes=new AtomicLong();
+    public static final AtomicLong pasteCaptureMemoryBytes=new AtomicLong(),pastePlanningMemoryBytes=new AtomicLong(),pasteCommitMemoryBytes=new AtomicLong(),pasteHistoryMemoryBytes=new AtomicLong(),pasteEntityMemoryBytes=new AtomicLong(),pasteWorkerMemoryBytes=new AtomicLong(),pasteStateMemoryBytes=new AtomicLong();
+    public static final AtomicLong pasteMemoryBackpressureYields=new AtomicLong(),pasteCapturePagesReleased=new AtomicLong(),pasteCapturePagesResident=new AtomicLong(),pasteSourceCellsRemaining=new AtomicLong(),pasteGlobalLiveMemoryBytes=new AtomicLong(),pasteGlobalPeakLiveMemoryBytes=new AtomicLong(),pasteSpillBytes=new AtomicLong();
+    public static final AtomicLong historyReplayProcessed=new AtomicLong(),historyReplayTotal=new AtomicLong(),historyReplayLiveMemoryBytes=new AtomicLong(),historyReplayPeakLiveMemoryBytes=new AtomicLong();
+    public static final AtomicLong pasteWorkerIoNanos=new AtomicLong();
     public static volatile boolean maxCommitResumeBeganExpired;
     public static final AtomicLong pasteBridgeInvocations=new AtomicLong();
     public static final AtomicLong pasteAccelerated=new AtomicLong();

@@ -7,6 +7,13 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.ClassReader;
+import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
+import org.objectweb.asm.tree.analysis.Analyzer;
+import org.objectweb.asm.tree.analysis.BasicVerifier;
+import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import static org.junit.Assert.*;
 
 public class PasteRuntimeShapeTest {
@@ -29,6 +36,19 @@ public class PasteRuntimeShapeTest {
         PasteHookStatus.observedCompatible();assertEquals(PasteHookStatus.RuntimeShape.SEEN_COMPATIBLE,PasteHookStatus.runtimeShape());assertFalse(PasteHookStatus.pasteHookInstalled);
         PasteHookStatus.resetForTests();PasteHookStatus.observedIncompatible("missing field source");
         assertEquals(PasteHookStatus.RuntimeShape.SEEN_INCOMPATIBLE,PasteHookStatus.runtimeShape());assertEquals("incompatible runtime shape: missing field source",PasteHookStatus.hookReason);
+    }
+    @Test public void coldPinnedClassesInstallReorderAndHistoryHooksWithValidStacks()throws Exception{
+        PasteHookStatus.historyCommandHookInstalled=false;PasteHookStatus.historySessionHookInstalled=false;
+        EditSessionSetTransformer transformer=new EditSessionSetTransformer();
+        String[] names={"com.sk89q.worldedit.EditSession","com.sk89q.worldedit.command.HistoryCommands","com.sk89q.worldedit.function.operation.BlockMapEntryPlacer","com.sk89q.worldedit.extent.reorder.MultiStageReorder$Stage3Committer"};
+        for(String name:names){
+            InputStream input=getClass().getClassLoader().getResourceAsStream(name.replace('.','/')+".class");assertNotNull(input);ByteArrayOutputStream output=new ByteArrayOutputStream();byte[] buffer=new byte[8192];try{int n;while((n=input.read(buffer))!=-1)output.write(buffer,0,n);}finally{input.close();}
+            byte[] original=output.toByteArray(),modified=transformer.transform(name,name,original);assertFalse(Arrays.equals(original,modified));
+            ClassNode node=new ClassNode();new ClassReader(modified).accept(node,0);
+            for(MethodNode method:node.methods)if(method.name.equals("undo")||method.name.equals("redo")||method.name.equals("resume"))new Analyzer(new BasicVerifier()).analyze(node.name,method);
+            if(name.endsWith("HistoryCommands")){int calls=0;for(MethodNode method:node.methods)for(AbstractInsnNode i=method.instructions.getFirst();i!=null;i=i.getNext())if(i instanceof MethodInsnNode&&((MethodInsnNode)i).name.equals("tryCommand"))calls++;assertEquals(2,calls);}
+        }
+        EnhancedReorderYieldBridge.prepareHooks();assertTrue(EnhancedReorderYieldBridge.isSupported());assertTrue(PasteHookStatus.historyCommandHookInstalled);assertTrue(PasteHookStatus.historySessionHookInstalled);
     }
     private static ClassNode shape(){
         ClassNode n=new ClassNode();n.name="com/sk89q/worldedit/function/operation/ForwardExtentCopy";n.superName="java/lang/Object";n.interfaces=Arrays.asList("com/sk89q/worldedit/function/operation/Operation");

@@ -61,6 +61,7 @@ public final class WorldEditOverdrive {
 
     @Mod.EventHandler
     public void serverStopping(FMLServerStoppingEvent event) {
+        com.glowingfederal.worldeditoverdrive.integration.DeferredPasteManager.cancelAll();
         ticks.setCoordinator(null);
         OverdriveCoordinator current = coordinator;
         coordinator = null;

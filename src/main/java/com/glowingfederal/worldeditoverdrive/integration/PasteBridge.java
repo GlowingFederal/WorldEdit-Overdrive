@@ -21,7 +21,11 @@ public final class PasteBridge {
         PasteOperationAdapter.Result recognized=PasteOperationAdapter.recognize((ForwardExtentCopy)operation);
         PasteHookStatus.lastPasteGraphDiagnostic=recognized.diagnostic;
         if(!recognized.isRecognized())return fallback(recognized.reason);
+        boolean supported=false;
         try {
+            PasteOperationAdapter.Eligibility eligible=recognized.adapter.accelerationEligibility();
+            if(eligible.kind!=PasteOperationAdapter.Eligibility.Kind.ACCELERATE)return fallback(eligible.reason);
+            supported=true;
             DeferredPasteManager.register((ForwardExtentCopy)operation,recognized.adapter,player,session,selectPasted);
             PasteHookStatus.lastPasteFallbackReason=null;
             PasteHookStatus.lastPasteDeferredReason="owned standard Enhanced 6.3.0 paste graph";
@@ -29,7 +33,12 @@ public final class PasteBridge {
         } catch(DeferredPasteManager.AdmissionRejectedException rejected){
             PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-interceptStarted)/1000000L);PasteHookStatus.pasteAdmissionRejected.incrementAndGet();PasteHookStatus.lastPasteAdmissionRejection=rejected.getMessage();
             player.printError(rejected.getMessage());return Decision.REJECTED;
-        } catch(Throwable unavailable) { PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-interceptStarted)/1000000L);return fallback("deferred ownership unavailable: "+unavailable.toString()); }
+        } catch(Throwable unavailable) {
+            PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-interceptStarted)/1000000L);
+            if(!supported)return fallback("deferred ownership unavailable: "+unavailable.toString());
+            PasteHookStatus.pasteAdmissionRejected.incrementAndGet();PasteHookStatus.lastPasteAdmissionRejection="Paste admission failed: "+unavailable;
+            player.printError(PasteHookStatus.lastPasteAdmissionRejection);return Decision.REJECTED;
+        }
     }
     private static Decision deferred(long started){PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-started)/1000000L);return Decision.DEFERRED;}
     private static Decision fallback(String reason){PasteHookStatus.pasteFallbacks.incrementAndGet();PasteHookStatus.lastPasteFallbackReason=reason;return Decision.VANILLA;}
