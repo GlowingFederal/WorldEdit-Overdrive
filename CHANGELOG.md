@@ -531,3 +531,52 @@ Changes are listed oldest to newest.
   placement; unsupported-graph and reorder-plus-fast-mode fallback semantics remain.
 - Added capture stage/page/slice diagnostics and documented startup ownership, resource
   rejection, snapshot API compatibility, and incremental preparation.
+
+2026-09-28 00:38 — Stream large paste memory and correct preparation pacing
+
+- Treat paste size as total work, with live per-operation/global reservations and
+  backpressure across capture, planning, disk reorder queues and native session history.
+  Supported memory-busy pastes wait without synchronous fallback; genuine indivisible
+  payload and disk failures retain explicit handling.
+- Correct the submission throttle to cap actual unloaded destination chunks instead
+  of repeated loaded-chunk crossings. Reuse completed phase transitions in the current
+  tick while preserving separate phase deadlines and a separate cold startup slice.
+- Preserve global reorder placement after preparation, with explicit preparation and
+  placement-stage diagnostics. Keep capture pages and worker queues bounded, release
+  transferred source cells, and retain only disk history after operation completion.
+- Share the placement cursor between paste and paced undo/redo, including adjacent
+  door halves across pages. Serialize direct replays of one history, persist applied
+  entity identities during cleanup, and avoid retaining unloaded worlds through history.
+- Cancel paste/replay work on world unload, restore native extents, and make failure
+  cleanup release reservations and file handles without leaving history replay waiting.
+- Add loaded-chunk submission and door-boundary regression coverage; update existing
+  documentation for streaming budgets, disk history, pacing and diagnostic ownership.
+
+2026-09-28 01:27 — Use server headroom for paste and preparation pacing
+
+- Replace soft-slice overshoot throttling with headroom-aware phase budgets, useful-tick
+  recovery, sampled sustained-load backoff and separate temporary chunk-load backoff.
+  Actual budget changes are counted; a normal mutation or isolated outlier no longer
+  reinforces the 1 ms floor. Bound prediction so cold samples cannot starve later work.
+- Run fair bounded same-tick continuations for capture, submission, paste, undo and redo
+  beneath a shared absolute deadline. Retain worker, memory, dependency/door ordering,
+  streamed history and spill ownership; enforce unloaded-chunk caps across each tick.
+- Add configurable shared server allowance and safety margin, lower dependency/entity
+  slice maxima, decision/wait reasons, recent distributions and rates, and separate
+  downstream versus scheduler overrun diagnostics. Document policy and synthetic results.
+- Add requested controller regressions, production scheduler coverage for preparation,
+  paste and replay, and a deterministic comparison with the previous pacing algorithm.
+- Add focused preparation, placement, pacing, paste, history, undo and redo diagnostic
+  commands with tab completion and optional per-operation stage views. Keep separate
+  bounded undo/redo progress snapshots without retaining worlds or replacing history.
+
+2026-09-28 02:14 — Prepare public-release documentation
+
+- Rewrite the README for players and administrators with installation requirements,
+  supported paste/history behavior, progress commands, pacing settings and limits.
+- Clarify that region command hooks currently retain normal WorldEdit execution,
+  fast-mode paste is not accelerated, and schematic loading remains WorldEdit work.
+- Distinguish internal memory/worker limits from the two public pacing settings;
+  explain temporary storage, shared-memory waits and client rendering costs.
+- Correct the integration/support documentation and label older fill behavior as
+  historical. Update the in-game mod description for the 1.0.0 presentation.

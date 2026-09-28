@@ -49,7 +49,7 @@ final class PasteDiskJournal implements Closeable {
     long count, bytes;
     PasteDiskJournal(File directory, String name) throws IOException {
         data = new RandomAccessFile(new File(directory, name + ".data"), "rw");
-        offsets = new RandomAccessFile(new File(directory, name + ".offsets"), "rw");
+        try{offsets = new RandomAccessFile(new File(directory, name + ".offsets"), "rw");}catch(IOException failure){data.close();throw failure;}
         final BufferedOutputStream buffered=new BufferedOutputStream(appendStream(data),8192);
         out=new DataOutputStream(new OutputStream(){
             public void write(int value)throws IOException{buffered.write(value);writePosition++;}
@@ -91,11 +91,11 @@ final class PasteDiskJournal implements Closeable {
         }
         offsetOut.writeLong(offset); count++; bytes=writePosition+count*8;return offset;
     }
-    long offset(long index) throws IOException {if(index<0||index>=count)throw new IndexOutOfBoundsException();flushBuffers();offsets.seek(index*8);offsets.readFully(offsetBuffer);long value=0;for(byte b:offsetBuffer)value=(value<<8)|(b&255);return value;}
-    long memoryAt(long offset) throws IOException {flushBuffers();readPosition=offset;return in.readLong();}
-    int[] typeDataAt(long offset) throws IOException {flushBuffers();readPosition=offset+8+1+12+1;return new int[]{in.readInt(),in.readInt()};}
-    Record read(long index) throws IOException { return readOffset(offset(index)); }
-    Record readOffset(long offset) throws IOException {
+    synchronized long offset(long index) throws IOException {if(index<0||index>=count)throw new IndexOutOfBoundsException();flushBuffers();offsets.seek(index*8);offsets.readFully(offsetBuffer);long value=0;for(byte b:offsetBuffer)value=(value<<8)|(b&255);return value;}
+    synchronized long memoryAt(long offset) throws IOException {flushBuffers();readPosition=offset;return in.readLong();}
+    synchronized int[] typeDataAt(long offset) throws IOException {flushBuffers();readPosition=offset+8+1+12+1;return new int[]{in.readInt(),in.readInt()};}
+    synchronized Record read(long index) throws IOException { return readOffset(offset(index)); }
+    synchronized Record readOffset(long offset) throws IOException {
         flushBuffers();readPosition=offset;Record r=new Record();r.memory=in.readLong();
         if (in.readBoolean()) {
             r.ex = in.readDouble(); r.ey = in.readDouble(); r.ez = in.readDouble(); r.yaw = in.readFloat(); r.pitch = in.readFloat();
@@ -105,7 +105,7 @@ final class PasteDiskJournal implements Closeable {
         }
         return r;
     }
-    void updateEntityIdentity(long index, int id, UUID uuid) throws IOException {
+    synchronized void updateEntityIdentity(long index, int id, UUID uuid) throws IOException {
         // header + entity flag + xyz doubles + yaw/pitch floats
         data.seek(offset(index) + 8 + 1 + 24 + 8); data.writeInt(id); data.writeLong(uuid.getMostSignificantBits()); data.writeLong(uuid.getLeastSignificantBits());
         readStart=-1;readLength=0;

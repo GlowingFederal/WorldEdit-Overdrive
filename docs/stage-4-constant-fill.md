@@ -1,5 +1,14 @@
 # Stage 4: Enhanced 6.3.0 constant-region fills
 
+## Historical implementation
+
+This document records the earlier synchronous fill implementation. In the current
+1.0.0 command path, `Stage4SetBridge` has no installed incremental owner and
+returns fallback before planning or mutation. `//set` therefore uses normal
+WorldEdit behavior even when its hook is installed. References below to ACTIVE
+describe hook installation or that historical implementation, not current paced
+acceleration. See [current command support](worldedit-enhanced-integration.md#current-command-support).
+
 ## Enhanced path traced
 
 The supplied Enhanced sources establish this path (paths are relative to `ReferenceSRC/WorldeditEhancedCoreSRC` unless noted):

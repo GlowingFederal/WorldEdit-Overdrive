@@ -1,5 +1,15 @@
 # Stage 4.6 dedicated-server compatibility and observability
 
+## Current release scope
+
+The fill-specific diagnostics, compatibility rules and verification matrix below
+record the earlier synchronous `//set` implementation. That bridge now falls
+back to Enhanced before mutation; hook installation does not mean `//set` is
+accelerated. The operator/console permission and server-side installation guidance
+still apply. Current paced paste/history behavior, focused progress commands and
+public configuration are documented in the [README](../README.md) and
+[integration document](worldedit-enhanced-integration.md).
+
 ## Diagnosis and logging
 
 The missing Stage 4.5 summary was an Overdrive observability defect: it used the

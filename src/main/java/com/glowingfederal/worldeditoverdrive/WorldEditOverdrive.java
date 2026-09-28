@@ -31,6 +31,17 @@ public final class WorldEditOverdrive {
     private final OverdriveTickHandler ticks = new OverdriveTickHandler();
 
     @Mod.EventHandler
+    public void preInitialize(cpw.mods.fml.common.event.FMLPreInitializationEvent event){
+        net.minecraftforge.common.config.Configuration config=new net.minecraftforge.common.config.Configuration(event.getSuggestedConfigurationFile());
+        config.load();
+        double maximum=config.get("pacing","serverBudgetMillis",30D,"Maximum shared paste/preparation/undo/redo work per tick (1-40 ms).").getDouble(30D);
+        double margin=config.get("pacing","safetyMarginMillis",5D,"Reserved tick margin, increased automatically for variable external load (1-25 ms).").getDouble(5D);
+        if(!Double.isFinite(maximum))maximum=30D;if(!Double.isFinite(margin))margin=5D;
+        com.glowingfederal.worldeditoverdrive.integration.DeferredPasteManager.configurePacing((long)(Math.max(1D,Math.min(40D,maximum))*1000000D),(long)(Math.max(1D,Math.min(25D,margin))*1000000D));
+        if(config.hasChanged())config.save();
+    }
+
+    @Mod.EventHandler
     public void initialize(FMLInitializationEvent event) {
         ModContainer worldEdit=Loader.instance().getIndexedModList().get("worldedit");
         String fmlVersion=worldEdit==null ? "not present" : worldEdit.getVersion();
@@ -44,6 +55,7 @@ public final class WorldEditOverdrive {
         OverdriveLog.info("WorldEdit {} detected; Stage 4 //set hook {}{}",
                 fmlVersion,Stage4HookStatus.activeSetCommandHookInstalled ? "ACTIVE" : "INACTIVE",reason);
         FMLCommonHandler.instance().bus().register(ticks);
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.register(ticks);
     }
 
     private static boolean sameVersion(String api,String fml) {

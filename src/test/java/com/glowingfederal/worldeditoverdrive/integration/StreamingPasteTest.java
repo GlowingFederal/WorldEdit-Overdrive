@@ -105,10 +105,65 @@ public class StreamingPasteTest {
     }
     @Test public void genuineIndivisibleResourceLimitStillFails(){PasteMemoryBudget b=new PasteMemoryBudget(1024,512);try{b.account().acquire(PasteMemoryBudget.Kind.CAPTURE,513);fail();}catch(IllegalArgumentException expected){assertTrue(expected.getMessage().contains("indivisible"));}}
 
+    @Test public void loadedChunkCrossingsDoNotThrottleAWholeSubmissionPage()throws Exception{
+        Fixture f=new Fixture(256,1,4);for(int x=0;x<256;x++)for(int z=0;z<4;z++)f.clipboard.setBlock(new Vector(x,0,z),new BaseBlock(1));
+        DeferredPasteManager.Owner o=owner(f,false,new PasteMemoryBudget(4L<<20,2L<<20));
+        until(o,DeferredPasteManager.Owner.State.PLANNING);while(o.busy)Thread.sleep(1);
+        o.indices=(int[])o.workerResult;o.workerResult=null;o.state=DeferredPasteManager.Owner.State.SUBMITTING;
+        assertFalse(o.needsChunkLoad(Vector.ZERO));o.submit(System.nanoTime()+1000000000L);
+        assertEquals(1024,o.submitted);assertEquals(1024,o.pageOffset);assertEquals(0,PasteHookStatus.chunksSinceLastDrain.get());
+    }
+    @Test public void doorPairCrossesBatchBoundaryAndCompletesTogether()throws Exception{
+        final List<Integer> heights=new ArrayList<Integer>();
+        Extent sink=new NullExtent(){public boolean setBlock(Vector p,BaseBlock b){heights.add(p.getBlockY());return true;}};
+        PasteCommitCursor cursor=new PasteCommitCursor();PasteStreamStorage.Batch first=new PasteStreamStorage.Batch();
+        PasteDiskJournal.Record upper=PasteDiskJournal.Record.block(new Vector(0,1,0),null,new BaseBlock(64,8),512);upper.pairWithNext=true;first.records.add(upper);
+        cursor.accept(first);cursor.apply(sink,Long.MAX_VALUE);assertTrue(heights.isEmpty());assertFalse(cursor.finishBatch());
+        PasteStreamStorage.Batch second=new PasteStreamStorage.Batch();second.done=true;second.records.add(PasteDiskJournal.Record.block(Vector.ZERO,null,new BaseBlock(64,0),512));
+        cursor.accept(second);cursor.apply(sink,0);assertTrue(heights.isEmpty());assertFalse(cursor.consumed());
+        cursor.apply(sink,Long.MAX_VALUE);assertEquals(Arrays.asList(1,0),heights);assertTrue(cursor.finishBatch());cursor.close();
+    }
+
+    @Test public void productionSchedulerResumesPasteMoreThanOncePerTick()throws Exception{
+        Fixture f=new Fixture(64,1,1);for(int x=0;x<64;x++)f.clipboard.setBlock(new Vector(x,0,0),new BaseBlock(1));
+        DeferredPasteManager.Owner o=owner(f,false,new PasteMemoryBudget(4L<<20,2L<<20));until(o,DeferredPasteManager.Owner.State.COMMITTING);
+        waitWorker(o);assertTrue(o.workerResult instanceof PasteStreamStorage.Batch);o.commitCursor.accept((PasteStreamStorage.Batch)o.workerResult);o.workerResult=null;assertEquals(0,o.committed);
+        for(int i=0;i<100;i++)DeferredPasteManager.tick(10000000L);
+        f.mutationDelay=1500000L;enqueue(DeferredPasteManager.class,"OWNERS",o);PasteHookStatus.pasteDeferredActive.incrementAndGet();
+        DeferredPasteManager.tick(10000000L);
+        String detail="committed="+o.committed+" "+Arrays.toString(o.pacing.describe());assertTrue(detail,o.committed>=10);assertTrue(detail,PastePacingDiagnostics.resumesThisTick>1);assertTrue(detail,o.reorderBudget.targetNanos()>=PasteSliceBudget.MIN_NANOS);
+    }
+    @Test public void productionSchedulerResumesPreparationMoreThanOncePerTick()throws Exception{
+        Fixture f=new Fixture(1024,1,1);for(int x=0;x<1024;x++)f.clipboard.setBlock(new Vector(x,0,0),new BaseBlock(1));
+        DeferredPasteManager.Owner o=owner(f,false,new PasteMemoryBudget(4L<<20,2L<<20));until(o,DeferredPasteManager.Owner.State.PLANNING);waitWorker(o);
+        for(int i=0;i<100;i++)DeferredPasteManager.tick(10000000L);
+        f.readDelay=250000L;enqueue(DeferredPasteManager.class,"OWNERS",o);PasteHookStatus.pasteDeferredActive.incrementAndGet();
+        DeferredPasteManager.tick(10000000L);
+        assertTrue("submission did not reuse its tick",o.submitted>15);assertTrue(PastePacingDiagnostics.resumesThisTick>1);assertTrue(o.submissionBudget.targetNanos()>=PasteSliceBudget.MIN_NANOS);
+    }
+    @Test public void productionSchedulerResumesUndoAndRedoInTheSameTick()throws Exception{
+        Fixture f=new Fixture(64,1,1);for(int x=0;x<64;x++)f.clipboard.setBlock(new Vector(x,0,0),new BaseBlock(1));
+        DeferredPasteManager.Owner o=owner(f,false,new PasteMemoryBudget(4L<<20,2L<<20));run(o);
+        for(boolean redo:new boolean[]{false,true}){
+            HistoryReplayBridge.Replay r=new HistoryReplayBridge.Replay(null,null,null,null,1,redo,f.edit,f.newEdit());
+            try{
+                long end=System.nanoTime()+5000000000L;
+                while(r.state!=HistoryReplayBridge.Replay.State.COMMIT){r.tick(System.nanoTime()+10000000L);if(r.busy)Thread.sleep(1);assertTrue(System.nanoTime()<end);}
+                while(r.busy)Thread.sleep(1);r.tick(System.nanoTime()+10000000L);while(r.busy)Thread.sleep(1);
+                r.commitCursor.accept((PasteStreamStorage.Batch)r.result);r.result=null;
+                for(int i=0;i<100;i++)DeferredPasteManager.tick(10000000L);
+                f.mutationDelay=1500000L;enqueue(HistoryReplayBridge.class,"REPLAYS",r);DeferredPasteManager.tick(10000000L);
+                String detail="changed="+r.commitCursor.changed+" "+Arrays.toString(r.pacing.describe());assertTrue(detail,PastePacingDiagnostics.resumesThisTick>1);assertTrue(detail,r.commitCursor.changed>=10);assertTrue(detail,r.commitBudget.targetNanos()>=PasteSliceBudget.MIN_NANOS);
+            }finally{f.mutationDelay=0;HistoryReplayBridge.cancelAll();r.release();long end=System.nanoTime()+5000000000L;while(r.memory.live()!=0&&System.nanoTime()<end)Thread.sleep(1);assertEquals(0,r.memory.live());}
+        }
+    }
+    @SuppressWarnings("unchecked") private static <T> void enqueue(Class<?> owner,String field,T value)throws Exception{Field f=owner.getDeclaredField(field);f.setAccessible(true);((Queue<T>)f.get(null)).add(value);}
+    private static void waitWorker(DeferredPasteManager.Owner o)throws Exception{long end=System.nanoTime()+5000000000L;while(o.busy){Thread.sleep(1);assertTrue(System.nanoTime()<end);}}
+
     private DeferredPasteManager.Owner owner(Fixture f,boolean ignore,PasteMemoryBudget budget)throws Exception{PasteOperationAdapter.Result result=PasteOperationAdapter.recognize(f.operation(ignore));assertTrue(result.reason,result.isRecognized());DeferredPasteManager.Owner o=new DeferredPasteManager.Owner(result.adapter,f.player,f.session,false,budget);owners.add(o);return o;}
     private static void run(DeferredPasteManager.Owner o)throws Exception{long end=System.nanoTime()+120000000000L;while(!o.tick(System.nanoTime()+10000000)){assertTrue("paste stalled at "+o.state+" "+o.pressure,System.nanoTime()<end);if(o.busy)Thread.sleep(1);}o.release(false);waitOwner(o);}
     private static void run(HistoryReplayBridge.Replay r)throws Exception{long end=System.nanoTime()+30000000000L;while(!r.tick(System.nanoTime()+5000000)){assertTrue("replay stalled at "+r.state,System.nanoTime()<end);if(r.busy)Thread.sleep(1);}r.release();while(r.memory.live()!=0&&System.nanoTime()<end)Thread.sleep(1);assertEquals(0,r.memory.live());}
-    private static void until(DeferredPasteManager.Owner o,DeferredPasteManager.Owner.State state)throws Exception{long end=System.nanoTime()+5000000000L;while(o.state!=state){o.tick(System.nanoTime()+10000000);assertTrue(System.nanoTime()<end);if(o.busy)Thread.sleep(1);}}
+    private static void until(DeferredPasteManager.Owner o,DeferredPasteManager.Owner.State state)throws Exception{long end=System.nanoTime()+5000000000L;while(o.state!=state){o.tick(System.nanoTime()+10000000);assertTrue("waiting for "+state+" at "+o.state+" pressure="+o.pressure+" memory="+o.memory.live(),System.nanoTime()<end);if(o.busy)Thread.sleep(1);}}
     private static void waitOwner(DeferredPasteManager.Owner o)throws Exception{long end=System.nanoTime()+5000000000L;while(!o.cleaned&&System.nanoTime()<end)Thread.sleep(1);synchronized(o){assertTrue(o.cleaned);}}
     private static CompoundTag tag(String name){Map<String,Tag> tags=new HashMap<String,Tag>();tags.put("Name",new StringTag(name));tags.put("items",new IntArrayTag(new int[]{1,3,5}));return new CompoundTag(tags);}
     private static final class TestEntity implements Entity {
@@ -117,15 +172,15 @@ public class StreamingPasteTest {
     }
     private static final class Fixture implements InvocationHandler {
         final Map<BlockVector,BaseBlock> blocks=new HashMap<BlockVector,BaseBlock>();final long serverThread=Thread.currentThread().getId();final World world;final Player player;final LocalSession session=new LocalSession();
-        final BlockArrayClipboard clipboard;final ClipboardHolder holder;final EditSession edit;Vector to=Vector.ZERO;
+        final BlockArrayClipboard clipboard;final ClipboardHolder holder;final EditSession edit;Vector to=Vector.ZERO;long mutationDelay,readDelay;
         Fixture(int x,int y,int z)throws Exception{world=(World)Proxy.newProxyInstance(World.class.getClassLoader(),new Class[]{World.class},this);player=(Player)Proxy.newProxyInstance(Player.class.getClassLoader(),new Class[]{Player.class},this);clipboard=new BlockArrayClipboard(new CuboidRegion(Vector.ZERO,new Vector(x-1,y-1,z-1)));holder=new ClipboardHolder(clipboard,LegacyWorldData.getInstance());session.setClipboard(holder);edit=newEdit();}
         EditSession newEdit()throws Exception{Constructor<EditSession> ctor=EditSession.class.getDeclaredConstructor(EventBus.class,World.class,Integer.TYPE,BlockBag.class,EditSessionEvent.class);ctor.setAccessible(true);EditSession result=ctor.newInstance(new EventBus(),world,-1,null,new EditSessionEvent(world,null,-1,null));result.enableQueue();return result;}
         ForwardExtentCopy operation(boolean ignore){return (ForwardExtentCopy)holder.createPaste(edit,LegacyWorldData.getInstance()).to(to).ignoreAirBlocks(ignore).build();}
         Map<BlockVector,BaseBlock> nativeResult(boolean ignore)throws Exception{EditSession nativeEdit=newEdit();Operations.completeLegacy(holder.createPaste(nativeEdit,LegacyWorldData.getInstance()).to(to).ignoreAirBlocks(ignore).build());nativeEdit.flushQueue();Map<BlockVector,BaseBlock> expected=new HashMap<BlockVector,BaseBlock>(blocks);blocks.clear();return expected;}
         public Object invoke(Object proxy,Method method,Object[] args){
             assertEquals("world/player call escaped the server thread",serverThread,Thread.currentThread().getId());String name=method.getName();
-            if(name.equals("getBlock")||name.equals("getLazyBlock")){BaseBlock b=blocks.get(((Vector)args[0]).toBlockVector());return b==null?new BaseBlock(0):new BaseBlock(b);}
-            if(name.equals("setBlock")){BlockVector p=((Vector)args[0]).toBlockVector();BaseBlock b=(BaseBlock)args[1];if(b.getId()==0)blocks.remove(p);else blocks.put(p,new BaseBlock(b));return true;}
+            if(name.equals("getBlock")||name.equals("getLazyBlock")){long end=System.nanoTime()+readDelay;while(System.nanoTime()<end){}BaseBlock b=blocks.get(((Vector)args[0]).toBlockVector());return b==null?new BaseBlock(0):new BaseBlock(b);}
+            if(name.equals("setBlock")){long end=System.nanoTime()+mutationDelay;while(System.nanoTime()<end){}BlockVector p=((Vector)args[0]).toBlockVector();BaseBlock b=(BaseBlock)args[1];if(b.getId()==0)blocks.remove(p);else blocks.put(p,new BaseBlock(b));return true;}
             if(name.equals("getWorld"))return world;if(name.equals("getWorldData"))return LegacyWorldData.getInstance();if(name.equals("getMaxY"))return 255;if(name.equals("getName"))return "test";
             if(name.equals("getUniqueId"))return new UUID(0,1);if(name.equals("getEntities"))return Collections.emptyList();if(name.equals("getMinimumPoint"))return new Vector(-30000000,0,-30000000);if(name.equals("getMaximumPoint"))return new Vector(30000000,255,30000000);
             if(name.equals("equals"))return proxy==args[0];if(name.equals("hashCode"))return System.identityHashCode(proxy);if(name.equals("toString"))return "streaming test world";

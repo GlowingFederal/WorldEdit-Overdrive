@@ -1,49 +1,68 @@
 # Stage 5C live deferred paste interception
 
-## Current paste scheduling and commit architecture
+## Current streamed paste and history architecture
 
-Enhanced 6.3.0 `EditSession.flushQueue()` is not a bounded native-queue drain. Its
-entire implementation is `Operations.completeBlindly(commit())`, and
-`EditSession.commit()` delegates to the complete `bypassNone` extent chain.
-`AbstractDelegateExtent.commit()` recursively collects every delegate's commit
-operation. In particular, an enabled `MultiStageReorder` exposes all three reorder
-stages, while `FastModeExtent` exposes its accumulated dirty-chunk finalizer. Neither
-the `EditSession` API nor the operation API offers a depth, a bounded resume count, or
-a chunk-specific drain. Consequently mutation count since the prior call cannot bound
-a flush, and the call itself is non-preemptible once `completeBlindly` starts.
+Supported standard Enhanced 6.3.0 pastes are admitted with a small descriptor,
+regardless of total estimated source size. The 64 MiB operation budget constrains
+live working memory; the 128 MiB global budget constrains all owners and retained
+history descriptors together. A full pool yields instead of rejecting a large
+source or running synchronous WorldEdit. Waiting admission has an explicit,
+accounted 16 KiB descriptor tolerance per owner.
 
-Supported reorder-enabled pastes submit through `EditSession.setBlock()` and obtain
-`EditSession.commit()` once. Enhanced-specific child resume hooks retain the original
-placement iterator and stage-three dependency state across ticks. Only real exhaustion
-returns null; dependency chains remain atomic. The owner stays COMMITTING until the
-top-level operation is null and all observed reorder stages are exhausted. Entities,
-history, selection, and success feedback follow that boundary. There are no intermediate
-flushes and no explicit final synchronous flush on this path. Reorder plus fast mode
-continues to fall back because its dirty-chunk finalizer cannot be sliced safely.
+Capture allocates one 1,024-cell page lazily, reads transformed source blocks on
+the server, and sizes NBT incrementally. Workers filter the immutable page and
+serialize bounded commit/history records. Source cells are released as downstream
+records take ownership; the page is released after its worker flush completes.
+No full snapshot, final air scan, auxiliary-map copy, NBT string sizing, complete
+entity filtering list or whole-paste planning/collation is required.
 
-One hard server-tick deadline bounds all owners. Each paste starts independent capture,
-submission, and reorder controllers at 5 ms, grows 10% after four safe samples, and cuts
-immediately after overshoot. Stage transitions clamp aggression. Inner resumes share
-one slice deadline; no inner call receives a renewed full allowance. Phase targets do
-not survive paste completion. Native mutation and complete dependency chains remain
-indivisible and can overrun a cooperative deadline.
+The actual native reorder and history positions are replaced for the owned graph
+by disk journals and a disk dependency index. Native masks, limits, block bags,
+validators, block quirks and world mutation remain in the extent chain. Stage one
+and two preserve native queue order; stage three retains last-write-wins XYZ
+identity and attachment/rail/door dependencies without a whole-paste heap chain.
+Long dependency walks can yield at valid placement prefixes. Adjacent door halves
+stay together through the shared paste/replay cursor, including page boundaries.
 
-Startup also obeys that deadline: capture allocates 1,024-cell pages on demand, counts air
-as cells are read, and resumes entity filtering and NBT sizing across ticks. Completed
-pages are sealed without a full-volume scan or map copy. Planning dispatch is limited to
-four jobs per tick. Supported pastes rejected by the existing preparation-memory limits
-return a resource error instead of starting a synchronous native traversal; semantic
-fallbacks for unsupported graphs remain unchanged.
+Global placement stages begin after all source submission and entity preparation.
+`SUBMITTING` can therefore show zero committed blocks while preparation advances;
+status now explicitly reports `WAITING_FOR_PREPARATION`. Completed phase transitions
+reuse the current tick allowance. Submission only spends its two-chunk load cap on
+actually unloaded Forge chunks, rather than every repeated raster chunk crossing.
+Native immediate-placement exceptions and disabled queues keep their behavior.
 
-Status now distinguishes source cells and air/ignore-air filtering from destination
-matches and actual planned/submitted/committed mutations. Destination matches reduce
-the actual plan as they are classified on the server thread, so `commitRemaining` is
-zero after successful downstream block completion. Capture, worker planning, submission,
-reorder, and finalization report separate active/elapsed timing. Resume distribution,
-deadline utilization, controller changes, and slowest mutation context are documented in
-[`worldedit-enhanced-integration.md`](worldedit-enhanced-integration.md#commit-deadline-and-pacing-diagnostics).
+After stages one through three, downstream commit resumes under the retained
+deadline, then entities, history sealing, selection and success feedback complete.
+No owned path calls synchronous `flushQueue()`/`completeBlindly()`. The original
+empty reorder extent is restored and temporary work files deleted. Fast-mode
+paste remains a semantic fallback because its native dirty-chunk finalizer cannot
+be paced through the available API.
 
-The runtime shape gate remains strict. Unsupported graphs fail open to Enhanced.
+Native sessions retain disk before/after history and entity identity with a charged
+32 KiB reservation per completed entry. Undo/redo commands and direct EditSession
+replay use bounded worker reads and the same server placement/reorder process,
+with reverse/forward history traversal and normal lighting mode. Session work and
+direct replays of the same history are serialized. Shutdown/world unload cancel
+work and release files/reservations after active worker completion.
+
+Each owner has independent phase pacing under one shared tick deadline. A single
+native block/entity call, chunk load, lighting/mod callback or GC pause remains
+indivisible. Existing clipboard/world storage is outside working-memory accounting;
+disk bytes scale with the whole operation. Impossible dimensions, unsupported
+graphs, indivisible records that cannot fit, and actual disk/I/O exhaustion retain
+explicit safety handling.
+
+Preparation, paste and replay can take multiple ready slices in the same tick.
+Headroom and the configured safety margin bound the shared allowance; soft slice
+completion does not throttle normal mutations. Chunk-load and sustained expensive
+work backoff reduce both slice targets and the phase's tick allowance. Source pages,
+spill storage, memory accounting, worker ownership and disk history remain unchanged.
+The integration document describes configuration, recovery, diagnostics and the
+deterministic controller benchmark.
+
+See [the integration document](worldedit-enhanced-integration.md#bounded-paste-preparation-and-execution)
+for the budget definitions, all removed whole-operation passes, history ownership,
+diagnostics and runtime validation boundaries.
 
 ## Implementation history
 

@@ -9,6 +9,9 @@ public final class OverdriveTickHandler {
     private volatile OverdriveCoordinator coordinator;
     private long tickStarted;
     public void setCoordinator(OverdriveCoordinator coordinator) { this.coordinator = coordinator; }
+    @SubscribeEvent public void onWorldUnload(net.minecraftforge.event.world.WorldEvent.Unload event){
+        if(!event.world.isRemote)DeferredPasteManager.cancelWorld(event.world);
+    }
     @SubscribeEvent public void onServerTick(TickEvent.ServerTickEvent event) {
         if(event.phase==TickEvent.Phase.START){tickStarted=System.nanoTime();return;}
         if (event.phase != TickEvent.Phase.END) return;

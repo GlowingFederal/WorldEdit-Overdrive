@@ -33,7 +33,11 @@ final class PasteStreamStorage implements Closeable {
     boolean beginSubmission(long before, long after) {
         if (submission != null) throw new IllegalStateException("nested paste submission");
         beforeBytes = before; afterBytes = after;
-        submission = memory.acquire(PasteMemoryBudget.Kind.WORKER, 4096L + before + after * 3);
+        long required=4096L+before+after*3;
+        // A single source payload must coexist with the fixed state and its
+        // downstream copies. Draining cannot make that indivisible unit fit.
+        if(required+after+STATE_BYTES+(16L<<10)>memory.limit())throw new IllegalArgumentException("indivisible paste payload exceeds live-memory budget");
+        submission = memory.acquire(PasteMemoryBudget.Kind.WORKER, required);
         return submission != null;
     }
     void endSubmission() { if (submission != null) { submission.close(); submission = null; } }
@@ -127,7 +131,10 @@ final class PasteStreamStorage implements Closeable {
     }
     void closeWorkFiles() throws IOException {
         // The native LocalSession retains only the two history journals after completion.
-        stage1.close(); stage2.close(); stage3.close(); entities.close(); index.close();
-        for (File f : directory.listFiles()) if (!f.getName().startsWith("history-")) if (!f.delete()) f.deleteOnExit();
+        IOException failure=null;
+        for(PasteDiskJournal journal:new PasteDiskJournal[]{stage1,stage2,stage3,entities})if(journal!=null)try{journal.close();}catch(IOException e){failure=e;}
+        if(index!=null)try{index.close();}catch(IOException e){failure=e;}
+        File[] files=directory.listFiles();if(files!=null)for(File f:files)if(!f.getName().startsWith("history-"))if(!f.delete())f.deleteOnExit();
+        if(failure!=null)throw failure;
     }
 }

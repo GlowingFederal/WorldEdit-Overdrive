@@ -5,6 +5,18 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /** Diagnostics owned exclusively by the optional Stage 5C paste bridge. */
 public final class PasteHookStatus {
+    public static volatile PastePacingDiagnostics pacing=new PastePacingDiagnostics();
+    public static volatile PastePacingDiagnostics pastePacing=pacing;
+    public static volatile String controllerWaitReason="none";
+    public static volatile HistoryProgress undoProgress=new HistoryProgress(),redoProgress=new HistoryProgress();
+    /** Latest replay of each direction; retains only bounded diagnostics, never a world. */
+    public static final class HistoryProgress {
+        public long operationId,processed,total,committed,entities,stage1,stage2,stage3,peakBytes;
+        public volatile long liveBytes;
+        public int entriesRemaining;
+        public volatile String phase="NOT_STARTED",waitReason="none";
+        public PastePacingDiagnostics pacing=new PastePacingDiagnostics();
+    }
     public enum RuntimeShape { NOT_SEEN, SEEN_INCOMPATIBLE, SEEN_COMPATIBLE, HOOK_INSTALLED }
     private static final AtomicReference<RuntimeShape> runtimeShape=new AtomicReference<RuntimeShape>(RuntimeShape.NOT_SEEN);
     public static volatile boolean pasteHookInstalled;
@@ -28,6 +40,9 @@ public final class PasteHookStatus {
     public static volatile String childResumeStage="none";
     public static volatile String captureWorkStage="IDLE",lastPasteAdmissionRejection;
     public static volatile String pasteMemoryBackpressureReason="none",historyReplayPhase="IDLE";
+    public static volatile long pasteOperationId;
+    public static volatile boolean pastePreparationComplete;
+    public static volatile String pastePlacementStage="IDLE";
     public static final AtomicLong pasteEstimatedTotalSourceBytes=new AtomicLong(),pasteLiveMemoryBytes=new AtomicLong(),pastePeakLiveMemoryBytes=new AtomicLong(),pasteMemoryBudgetBytes=new AtomicLong();
     public static final AtomicLong pasteCaptureMemoryBytes=new AtomicLong(),pastePlanningMemoryBytes=new AtomicLong(),pasteCommitMemoryBytes=new AtomicLong(),pasteHistoryMemoryBytes=new AtomicLong(),pasteEntityMemoryBytes=new AtomicLong(),pasteWorkerMemoryBytes=new AtomicLong(),pasteStateMemoryBytes=new AtomicLong();
     public static final AtomicLong pasteMemoryBackpressureYields=new AtomicLong(),pasteCapturePagesReleased=new AtomicLong(),pasteCapturePagesResident=new AtomicLong(),pasteSourceCellsRemaining=new AtomicLong(),pasteGlobalLiveMemoryBytes=new AtomicLong(),pasteGlobalPeakLiveMemoryBytes=new AtomicLong(),pasteSpillBytes=new AtomicLong();

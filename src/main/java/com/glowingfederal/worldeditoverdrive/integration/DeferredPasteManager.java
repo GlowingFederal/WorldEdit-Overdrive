@@ -21,6 +21,8 @@ public final class DeferredPasteManager {
     static final long GLOBAL=128L<<20, PER_OPERATION=64L<<20;
     static final PasteMemoryBudget MEMORY=new PasteMemoryBudget(GLOBAL,PER_OPERATION);
     private static final AdaptiveServerBudget BUDGET=new AdaptiveServerBudget();
+    static long tickSequence,tickDeadline,tickAllowance;
+    public static void configurePacing(long maximum,long safetyMargin){BUDGET.configure(maximum,safetyMargin);}
     private static final Queue<Owner> OWNERS=new ArrayDeque<Owner>();
     static final AtomicLong SEQUENCE=new AtomicLong();
     private static final Map<LocalSession,Object> SESSION_OWNERS=new IdentityHashMap<LocalSession,Object>();
@@ -39,9 +41,26 @@ public final class DeferredPasteManager {
     static synchronized boolean hasWork(LocalSession session){for(Owner o:OWNERS)if(o.session==session)return true;return false;}
     public static void tick(long normalTickNanos){
         long started=System.nanoTime(),deadline=started+BUDGET.beginTick(normalTickNanos);
+        tickSequence++;tickDeadline=deadline;tickAllowance=deadline-started;
+        PastePacingDiagnostics.hardDeadline=deadline;PastePacingDiagnostics.headroom=BUDGET.headroomNanos();PastePacingDiagnostics.safetyMargin=BUDGET.safetyMarginNanos();PastePacingDiagnostics.reserve=BUDGET.reserveNanos();
+        PastePacingDiagnostics.tickSequence=tickSequence;PastePacingDiagnostics.resumesThisTick=PastePacingDiagnostics.placementsThisTick=0;
         Owner[] snapshot;synchronized(DeferredPasteManager.class){snapshot=OWNERS.toArray(new Owner[OWNERS.size()]);}
-        for(Owner o:snapshot){if(System.nanoTime()>=deadline)break;try{if(o.tick(deadline))remove(o,true,null);else rotate(o);}catch(Throwable e){remove(o,false,e);}}
-        HistoryReplayBridge.tick(deadline);
+        boolean[] ready=new boolean[snapshot.length];java.util.Arrays.fill(ready,true);
+        HistoryReplayBridge.Replay[] replays=HistoryReplayBridge.snapshot();boolean[] replayReady=new boolean[replays.length];java.util.Arrays.fill(replayReady,true);
+        int total=snapshot.length+replays.length,first=total==0?0:(int)(tickSequence%total);
+        // Fair bounded rounds. Owners waiting for I/O, memory or a session leave
+        // this tick; no worker polling and no waiting on futures on the server.
+        for(int round=0;round<128&&System.nanoTime()<deadline;round++){
+            boolean again=false;
+            // Rotate the first visit across BOTH groups. Busy pastes must not
+            // permanently consume the deadline before another player's replay.
+            for(int visit=0;visit<total&&System.nanoTime()<deadline;visit++){
+                int i=(first+visit)%total;
+                if(i<snapshot.length){if(ready[i]){Owner o=snapshot[i];try{if(o.tick(deadline)){remove(o,true,null);ready[i]=false;}else{rotate(o);ready[i]=o.resumeReady;}}catch(Throwable e){remove(o,false,e);ready[i]=false;}again|=ready[i];}}
+                else{i-=snapshot.length;if(replayReady[i]){replayReady[i]=HistoryReplayBridge.visit(replays[i],deadline);again|=replayReady[i];}}
+            }
+            if(!again)break;
+        }
         PasteHookStatus.pasteGlobalLiveMemoryBytes.set(MEMORY.live());PasteHookStatus.pasteGlobalPeakLiveMemoryBytes.set(MEMORY.peak());BUDGET.endTick(System.nanoTime()-started);
     }
     private static synchronized void rotate(Owner o){if(OWNERS.remove(o))OWNERS.add(o);}
@@ -58,8 +77,21 @@ public final class DeferredPasteManager {
         o.release(!success);
     }
     public static synchronized void cancelAll(){
-        for(Owner o:OWNERS){o.lifecycle.cancel();o.release(true);}
+        for(Owner o:OWNERS){cancel(o);}
         PasteHookStatus.pasteDeferredActive.addAndGet(-OWNERS.size());OWNERS.clear();HistoryReplayBridge.cancelAll();
+    }
+    public static synchronized void cancelWorld(net.minecraft.world.World world){
+        for(Iterator<Owner> it=OWNERS.iterator();it.hasNext();){Owner o=it.next();if(ownsWorld(o.adapter.destination,world)){cancel(o);it.remove();PasteHookStatus.pasteDeferredActive.decrementAndGet();}}
+        HistoryReplayBridge.cancelWorld(world);
+    }
+    static boolean ownsWorld(EditSession edit,net.minecraft.world.World world){
+        if(edit==null||!(edit.getWorld() instanceof com.sk89q.worldedit.forge.ForgeWorld))return false;
+        try{return ((com.sk89q.worldedit.forge.ForgeWorld)edit.getWorld()).getWorld()==world;}catch(RuntimeException unloaded){return true;}
+    }
+    private static void cancel(Owner o){
+        o.lifecycle.cancel();if(o.commitActive){PasteHookStatus.pasteCommitActive.decrementAndGet();o.commitActive=false;}
+        if(o.extent!=null)try{PasteExtentInstaller.restore(o.adapter.destination,o.extent);}catch(Exception e){OverdriveLog.error("cancelled paste extent restoration failed: {}",e.toString());}
+        o.release(true);
     }
     static final class Owner implements MutationOperationOwner {
         enum State{STARTING,CAPTURING,PLANNING,SUBMITTING,FLUSHING,ENTITY_CAPTURE,COMMITTING,FINALIZING,FINISHING,COMPLETE}
@@ -70,7 +102,9 @@ public final class DeferredPasteManager {
         final long operationStarted=System.nanoTime();final int minX,minY,minZ,sizeX,sizeY,sizeZ,volume;
         final long order=SEQUENCE.incrementAndGet();
         final PasteNbtSizer sizer=new PasteNbtSizer();
-        final PasteSliceBudget captureBudget=new PasteSliceBudget(),submissionBudget=new PasteSliceBudget(),reorderBudget=new PasteSliceBudget();
+        final PasteSliceBudget captureBudget=new PasteSliceBudget(),submissionBudget=new PasteSliceBudget(),reorderBudget=new PasteSliceBudget(),entityBudget=new PasteSliceBudget();
+        final PastePacingDiagnostics pacing=new PastePacingDiagnostics();
+        boolean resumeReady,coldInstall;long localTick,hardDeadline,chunkTick=Long.MIN_VALUE;int chunkLoadsThisTick;
         final PasteResumeStatistics resumeStatistics=new PasteResumeStatistics();
         PasteMemoryBudget.Ticket descriptor,stateMemory,workspace,pageMemory,planningMemory;
         final PasteMemoryBudget.Ticket[] payloads=new PasteMemoryBudget.Ticket[PreparedClipboardView.PAGE_SIZE];
@@ -116,9 +150,11 @@ public final class DeferredPasteManager {
             }});
         }
         public boolean tick(long deadline)throws Exception{
-            long start=System.nanoTime();State phase=state;
-            PasteSliceBudget pace=phase==State.CAPTURING||phase==State.ENTITY_CAPTURE?captureBudget:phase==State.SUBMITTING?submissionBudget:phase==State.COMMITTING?reorderBudget:null;
-            if(pace!=null)deadline=Math.min(deadline,start+pace.targetNanos());long allowance=Math.max(0,deadline-start);pressure="none";
+            long start=System.nanoTime();pressure="none";resumeReady=false;coldInstall=false;hardDeadline=deadline;
+            State before=state;long progress=captureIndex+pageOffset+committed+committedEntities+entityCaptureCursor+commitStage;commitCursor.placements=0;
+            if(deadline!=tickDeadline)localTick++;
+            long tickKey=deadline==tickDeadline?tickSequence:localTick;if(chunkTick!=tickKey){chunkTick=tickKey;chunkLoadsThisTick=0;}
+            commitCursor.beginTick(tickKey);
             try{
                 if(workerFailure!=null)throw new Exception("paste worker failed",workerFailure);
                 if(busy){pressure="WORKER_IO";return false;}
@@ -128,19 +164,24 @@ public final class DeferredPasteManager {
                     lifecycle.running();job(new Callable<Object>(){public Object call()throws Exception{storage.initialize();return null;}});state=State.FLUSHING;afterFlush=State.CAPTURING;return false;
                 }
                 if(state==State.FLUSHING){
-                    if(extent==null){extent=PasteExtentInstaller.install(adapter.destination,storage,true);history=(PasteDiskHistory)adapter.destination.getChangeSet();}
-                    if(afterFlush==State.CAPTURING)releasePage();state=afterFlush;workerResult=null;return false;
+                    if(extent==null){
+                        extent=PasteExtentInstaller.install(adapter.destination,storage,true);history=(PasteDiskHistory)adapter.destination.getChangeSet();
+                        // The initial installation may resolve cold classes. Give
+                        // capture its own slice rather than adding it to startup.
+                        state=afterFlush;workerResult=null;coldInstall=true;commitCursor.world(adapter.destination.getWorld());return false;
+                    }
+                    if(afterFlush==State.CAPTURING)releasePage();state=afterFlush;workerResult=null;
                 }
-                if(state==State.CAPTURING){capture(deadline);return false;}
+                if(state==State.CAPTURING){slice(State.CAPTURING,deadline);if(state!=State.PLANNING)return false;}
                 if(state==State.PLANNING){
                     if(planningMemory==null){planningMemory=memory.acquire(PasteMemoryBudget.Kind.PLANNING,16L<<10);if(planningMemory==null)return pressure("PLANNING");dispatchPlan();return false;}
                     if(workerResult==null)return false;indices=(int[])workerResult;workerResult=null;pageOffset=0;state=State.SUBMITTING;planningActive=false;PasteHookStatus.pastePlanningActive.decrementAndGet();
                     if(!commitActive){commitActive=true;commitStarted=System.nanoTime();lifecycle.committing();PasteHookStatus.pasteCommitActive.incrementAndGet();}
                 }
-                if(state==State.SUBMITTING){submit(deadline);return false;}
-                if(state==State.ENTITY_CAPTURE){captureEntities(deadline);return false;}
-                if(state==State.COMMITTING){commit(deadline);return false;}
-                if(state==State.FINALIZING){entities(deadline);return false;}
+                if(state==State.SUBMITTING){slice(State.SUBMITTING,deadline);return false;}
+                if(state==State.ENTITY_CAPTURE){slice(State.ENTITY_CAPTURE,deadline);return false;}
+                if(state==State.COMMITTING){slice(State.COMMITTING,deadline);return false;}
+                if(state==State.FINALIZING){slice(State.FINALIZING,deadline);return false;}
                 if(state==State.FINISHING){
                     history.seal();PasteExtentInstaller.restore(adapter.destination,extent);session.remember(adapter.destination);Vector to=adapter.destinationOrigin;
                     if(select){Vector max=to.add(adapter.region.getMaximumPoint().subtract(adapter.region.getMinimumPoint()));RegionSelector selector=new CuboidRegionSelector(player.getWorld(),to,max);session.setRegionSelector(player.getWorld(),selector);selector.learnChanges();selector.explainRegionAdjust(player,session);}
@@ -149,10 +190,33 @@ public final class DeferredPasteManager {
                 return state==State.COMPLETE;
             }finally{
                 long n=System.nanoTime()-start;updateMax(PasteHookStatus.lastOperationMaxServerSliceMillis,n/1000000);
-                if(phase==State.CAPTURING||phase==State.ENTITY_CAPTURE){captureNanos+=n;captureBudget.observe(n,allowance,state==phase);PasteHookStatus.captureSlices.incrementAndGet();updateMax(PasteHookStatus.maxCaptureSliceNanos,n);}
-                else if(phase==State.SUBMITTING){submissionNanos+=n;submissionBudget.observe(n,allowance,state==phase);}
-                else if(phase==State.COMMITTING){commitNanos+=n;reorderBudget.observe(n,allowance,state==phase);}else if(phase==State.FINALIZING)finalizationNanos+=n;
+                resumeReady=!coldInstall&&!busy&&!commitCursor.chunkLoadYield&&"none".equals(pressure)&&(state!=before||progress!=captureIndex+pageOffset+committed+committedEntities+entityCaptureCursor+commitStage||commitCursor.placements>0)&&System.nanoTime()<deadline;
                 publish();
+            }
+        }
+        private void slice(State phase,long deadline)throws Exception{
+            long start=System.nanoTime();
+            PasteSliceBudget pace=phase==State.CAPTURING||phase==State.ENTITY_CAPTURE?captureBudget:phase==State.SUBMITTING?submissionBudget:reorderBudget;
+            if(phase==State.FINALIZING||phase==State.ENTITY_CAPTURE)pace=entityBudget;
+            long hard=deadline,changesBefore=committed,capturedBefore=captureIndex,submittedBefore=submitted;
+            long maximum=phase==State.FINALIZING||phase==State.ENTITY_CAPTURE?PasteSliceBudget.ENTITY_MAX_NANOS:phase==State.COMMITTING&&commitStage>=3?PasteSliceBudget.DEPENDENCY_MAX_NANOS:PasteSliceBudget.MAX_NANOS;
+            long tick=hard==tickDeadline?tickSequence:localTick;
+            deadline=pace.beginSlice(tick,start,hard,hard==tickDeadline?tickAllowance:Math.max(0,hard-start),maximum);long allowance=Math.max(0,deadline-start);
+            try{
+                switch(phase){
+                    case CAPTURING:capture(deadline);break;
+                    case ENTITY_CAPTURE:captureEntities(deadline);break;
+                    case SUBMITTING:submit(deadline);break;
+                    case COMMITTING:commit(deadline);break;
+                    case FINALIZING:entities(deadline);break;
+                    default:throw new IllegalArgumentException("not a paced phase");
+                }
+            }finally{
+                long n=System.nanoTime()-start;pace.observe(n,allowance,state==phase,Math.max(0,hard-start));
+                pacing.record(tick,System.nanoTime(),phase.name(),pace,n,Math.max(0,hard-start),committed-changesBefore,captureIndex-capturedBefore,submitted-submittedBefore);PasteHookStatus.pacing=pacing;
+                if(phase==State.CAPTURING||phase==State.ENTITY_CAPTURE){captureNanos+=n;PasteHookStatus.captureSlices.incrementAndGet();updateMax(PasteHookStatus.maxCaptureSliceNanos,n);}
+                else if(phase==State.SUBMITTING){submissionNanos+=n;updateMax(PasteHookStatus.maxSubmissionSliceMillis,n/1000000);}
+                else if(phase==State.COMMITTING)commitNanos+=n;else finalizationNanos+=n;
             }
         }
         void capture(long deadline)throws Exception{
@@ -165,7 +229,8 @@ public final class DeferredPasteManager {
                 if(pendingBlock==null){
                     int i=captureIndex,x=minX+i%sizeX,q=i/sizeX,z=minZ+q%sizeZ,y=minY+q/sizeZ;Vector source=new Vector(x,y,z);
                     if(!adapter.region.contains(source)){captureIndex++;PasteHookStatus.pasteOtherwiseFilteredCells.incrementAndGet();continue;}
-                    pendingBlock=adapter.transformedSource.getBlock(source);pendingDestination=adapter.transform.apply(source.subtract(adapter.sourceOrigin)).add(adapter.destinationOrigin);
+                    long unitStarted=System.nanoTime();pendingBlock=adapter.transformedSource.getBlock(source);pendingDestination=adapter.transform.apply(source.subtract(adapter.sourceOrigin)).add(adapter.destinationOrigin);
+                    captureBudget.recordMutation(System.nanoTime()-unitStarted,false,pendingBlock.getNbtData()!=null);
                     sizer.start(pendingBlock.getNbtData());pendingBytes=0;
                 }
                 pendingBytes+=sizer.resume(deadline,4096);PasteHookStatus.captureWorkStage=sizer.complete()?"BLOCKS":"NBT_ACCOUNTING";if(!sizer.complete())return;
@@ -183,25 +248,37 @@ public final class DeferredPasteManager {
             planningActive=true;PasteHookStatus.pastePlanningActive.incrementAndGet();job(new Callable<Object>(){public Object call(){int[] result=new int[view.getVolume()];int count=0;for(int i=0;i<view.getVolume();i++)if(!adapter.ignoreAir||view.idAt(i)!=0)result[count++]=i;planned+=count;return Arrays.copyOf(result,count);}},true);
         }
         void submit(long deadline)throws Exception{
-            int attempts=0,chunks=0;long last=Long.MIN_VALUE;
-            while(pageOffset<indices.length&&attempts<4096&&System.nanoTime()<deadline){
+            long hard=Math.max(deadline,hardDeadline);
+            int attempts=0,chunks=0;
+            while(pageOffset<indices.length&&attempts<4096&&submissionBudget.canStartUnit(System.nanoTime(),deadline,hard,1)){
                 int i=indices[pageOffset];Vector position=new Vector(prepared.destinationX(i),prepared.destinationY(i),prepared.destinationZ(i));
-                long chunk=((long)(position.getBlockX()>>4)<<32)^(position.getBlockZ()>>4&0xffffffffL);
-                if(chunk!=last&&chunks>=2)break;if(chunk!=last){chunks++;last=chunk;}BaseBlock desired=prepared.blockAt(i);
+                BaseBlock desired=prepared.blockAt(i);
                 if(!previousRead){
-                    previous=adapter.destination.getBlock(position);previousRead=true;
+                    // Raster traversal repeatedly revisits chunks. Only a read
+                    // that can actually load a chunk consumes the load allowance.
+                    boolean load=needsChunkLoad(position);if(load){if(chunkLoadsThisTick>=2){pressure="CHUNK_LOAD_CAP";break;}chunks++;chunkLoadsThisTick++;}
+                    long unitStarted=System.nanoTime();previous=adapter.destination.getBlock(position);previousRead=true;
+                    submissionBudget.recordMutation(System.nanoTime()-unitStarted,load,previous.getNbtData()!=null);
                     if(desired.getNbtData()==null&&previous.getId()==desired.getId()&&previous.getData()==desired.getData()){matched++;planned--;releaseCell(i);pageOffset++;previous=null;previousRead=false;continue;}
                     sizer.start(previous.getNbtData());previousBytes=0;
                 }
                 previousBytes+=sizer.resume(deadline,4096);if(!sizer.complete()){pressure="DESTINATION_NBT_ACCOUNTING";return;}
                 long desiredBytes=Math.max(0,payloads[i].bytes()-512);
+                if(!submissionBudget.canStartUnit(System.nanoTime(),deadline,hard,1))return;
                 if(!storage.beginSubmission(previousBytes,desiredBytes)){flush(State.SUBMITTING);pressure("SUBMISSION_MEMORY");return;}
+                long unitStarted=System.nanoTime();
                 try{long direct=storage.directChanged,dt=storage.directTiles;int historyBefore=history.size();adapter.destination.setBlock(position,desired);if(history.size()==historyBefore)PasteHookStatus.pasteOtherwiseFilteredCells.incrementAndGet();committed+=storage.directChanged-direct;PasteHookStatus.pasteCommittedTiles.addAndGet(storage.directTiles-dt);mutation=true;submitted++;attempts++;}
-                finally{storage.endSubmission();}
+                finally{submissionBudget.recordMutation(System.nanoTime()-unitStarted,false,desired.getNbtData()!=null);storage.endSubmission();}
                 releaseCell(i);pageOffset++;previous=null;previousRead=false;
             }
             PasteHookStatus.chunksSinceLastDrain.set(chunks);PasteHookStatus.submittedSinceLastDrain.set(attempts);
             if(pageOffset==indices.length){ignored+=prepared.getVolume()-indices.length;flush(State.CAPTURING);}
+        }
+        boolean needsChunkLoad(Vector position){
+            com.sk89q.worldedit.world.World world=adapter.destination.getWorld();
+            if(!(world instanceof com.sk89q.worldedit.forge.ForgeWorld))return false;
+            net.minecraft.world.World nativeWorld=((com.sk89q.worldedit.forge.ForgeWorld)world).getWorld();
+            return !nativeWorld.getChunkProvider().chunkExists(position.getBlockX()>>4,position.getBlockZ()>>4);
         }
         void flush(State next){afterFlush=next;state=State.FLUSHING;job(new Callable<Object>(){public Object call()throws Exception{storage.flush();return null;}});}
         void releaseCell(int i){if(payloads[i]!=null){payloads[i].close();payloads[i]=null;}prepared.releaseCell(i);}
@@ -234,12 +311,12 @@ public final class DeferredPasteManager {
             if(commitStage<=3){
                 if(commitCursor.batch==null){if(workerResult!=null){commitCursor.accept((PasteStreamStorage.Batch)workerResult);workerResult=null;}else{final int stage=commitStage;job(new Callable<Object>(){public Object call()throws Exception{return storage.readBatch(stage);}});return;}}
                 long start=System.nanoTime(),changedBefore=commitCursor.changed,tilesBefore=commitCursor.tiles;PasteHookStatus.incrementalCommitSlices.incrementAndGet();
-                commitCursor.apply(extent.getExtent(),deadline);long placements=commitCursor.placements;
+                commitCursor.apply(extent.getExtent(),deadline,hardDeadline,reorderBudget);long placements=commitCursor.placements;
                 committed+=commitCursor.changed-changedBefore;PasteHookStatus.pasteCommittedTiles.addAndGet(commitCursor.tiles-tilesBefore);mutation|=placements!=0;
                 long n=System.nanoTime()-start;resumeStatistics.record(n,Math.max(0,deadline-start));PasteHookStatus.commitResumeCalls.incrementAndGet();
                 PasteHookStatus.placementsThisResume.set(placements);PasteHookStatus.childResumeStage="STREAM_STAGE_"+commitStage;PasteHookStatus.commitPacingStage=PasteHookStatus.childResumeStage;
                 if(!commitCursor.consumed()){PasteHookStatus.deadlineYieldCount.incrementAndGet();return;}
-                boolean done=commitCursor.finishBatch();if(commitCursor.pressure)pressure("COMMIT_READ_MEMORY");if(done){commitStage++;reorderBudget.resetStage();}return;
+                boolean done=commitCursor.finishBatch();if(commitCursor.pressure)pressure("COMMIT_READ_MEMORY");if(done)commitStage++;return;
             }
             if(!downstreamStarted){downstream=adapter.destination.commit();downstreamStarted=true;PasteHookStatus.commitOperationClass=downstream==null?"none":downstream.getClass().getName();}
             RunContext run=new RunContext();
@@ -249,10 +326,10 @@ public final class DeferredPasteManager {
         void entities(long deadline)throws Exception{
             if(batch==null){if(workerResult!=null){batch=(PasteStreamStorage.Batch)workerResult;workerResult=null;batchOffset=0;}else{job(new Callable<Object>(){public Object call()throws Exception{return storage.readBatch(4);}});return;}}
             int count=0;
-            while(batchOffset<batch.records.size()&&count<16&&System.nanoTime()<deadline){
+            while(batchOffset<batch.records.size()&&count<16&&entityBudget.canStartUnit(System.nanoTime(),deadline,hardDeadline,1)){
                 PasteDiskJournal.Record r=batch.records.get(batchOffset);
                 if(!storage.beginSubmission(0,Math.max(0,r.memory-1024))){flush(State.FINALIZING);pressure("ENTITY_HISTORY_MEMORY");return;}
-                try{if(adapter.destination.createEntity(new Location(adapter.destination,r.ex,r.ey,r.ez,r.yaw,r.pitch),r.entity)!=null)committedEntities++;mutation=true;}finally{storage.endSubmission();}
+                long unitStarted=System.nanoTime();try{if(adapter.destination.createEntity(new Location(adapter.destination,r.ex,r.ey,r.ez,r.yaw,r.pitch),r.entity)!=null)committedEntities++;mutation=true;}finally{entityBudget.recordMutation(System.nanoTime()-unitStarted,false,true);storage.endSubmission();}
                 batchOffset++;r.release();count++;
             }
             if(batchOffset<batch.records.size())return;
@@ -261,6 +338,12 @@ public final class DeferredPasteManager {
         }
         boolean pressure(String reason){pressure=reason;backpressure++;return false;}
         void publish(){
+            PasteHookStatus.controllerWaitReason=busy?"WORKER_IO_OR_PLANNING":commitCursor.chunkLoadYield?"CHUNK_LOAD_CAP":pressure;
+            pacing.waitReason(PasteHookStatus.controllerWaitReason);
+            PasteHookStatus.pastePacing=pacing;
+            PasteHookStatus.pasteOperationId=order;PasteHookStatus.pastePreparationComplete=captureFinished!=0;
+            PasteHookStatus.pastePlacementStage=captureFinished==0?"WAITING_FOR_PREPARATION":state==State.COMMITTING?"STAGE_"+commitStage:state==State.COMPLETE?"COMPLETE":"ENTITIES_AND_HISTORY";
+            PasteHookStatus.pasteEstimatedTotalSourceBytes.set(128L+(long)volume*32);PasteHookStatus.pasteMemoryBudgetBytes.set(memory.limit());
             PasteHookStatus.activePhase=state==State.COMPLETE?"IDLE":state.name();if(state!=State.CAPTURING)PasteHookStatus.captureWorkStage=state.name();
             PasteHookStatus.snapshotProcessed.set(captureIndex);PasteHookStatus.snapshotTotalEstimate.set(volume);PasteHookStatus.pasteSourceCellsRemaining.set(volume-captureIndex);
             PasteHookStatus.capturePagesAllocated.set(pagesAllocated);PasteHookStatus.pasteCapturePagesReleased.set(pagesReleased);PasteHookStatus.pasteCapturePagesResident.set(pagesAllocated-pagesReleased);
@@ -302,7 +385,11 @@ public final class DeferredPasteManager {
                 if(batch!=null){batch.close();batch=null;}commitCursor.close();releasePage();pendingBlock=null;previous=null;pendingEntity=null;sourceEntities=null;
                 if(keepHistory&&history!=null){storage.cancelled=false;storage.flush();history.seal();storage.closeWorkFiles();storage.historyBlocks.sealReadOnly();storage.historyEntities.sealReadOnly();history.retainDescriptor(stateMemory.split(PasteMemoryBudget.Kind.HISTORY,32768));}
                 else{if(history!=null)history.detach();storage.close();}
-            }catch(Throwable e){OverdriveLog.error("paste cleanup/history persistence failed: {}",e.toString());storage.releasePending();}
+            }catch(Throwable e){
+                OverdriveLog.error("paste cleanup/history persistence failed: {}",e.toString());storage.releasePending();
+                if(history!=null)history.persistenceFailed(e);
+                try{storage.close();}catch(Exception close){OverdriveLog.error("paste storage cleanup failed: {}",close.toString());}
+            }
             finally{if(planningActive){planningActive=false;PasteHookStatus.pastePlanningActive.decrementAndGet();}if(workspace!=null){workspace.close();workspace=null;}if(stateMemory!=null){stateMemory.close();stateMemory=null;}if(descriptor!=null){descriptor.close();descriptor=null;}publish();}
         }
     }

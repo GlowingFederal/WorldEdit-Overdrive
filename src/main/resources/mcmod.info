@@ -2,7 +2,7 @@
   {
     "modid": "worldeditoverdrive",
     "name": "WorldEdit Overdrive",
-    "description": "A correctness-first Forge 1.7.10 acceleration addon for WorldEdit Enhanced.",
+    "description": "Paced large-scale paste, undo and redo for WorldEdit Enhanced 6.3.0 on Minecraft 1.7.10, with bounded working memory and adaptive server-load pacing.",
     "version": "${version}",
     "mcversion": "${mcVersion}",
     "dependencies": ["required-after:worldedit"]

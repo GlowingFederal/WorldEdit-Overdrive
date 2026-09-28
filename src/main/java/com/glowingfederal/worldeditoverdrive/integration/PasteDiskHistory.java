@@ -22,6 +22,7 @@ import java.util.UUID;
  * Commands/API undo are intercepted before their synchronous complete loop. */
 final class PasteDiskHistory implements ChangeSet,Closeable {
     private volatile PasteStreamStorage writing;
+    private volatile Throwable persistenceFailure;
     final PasteDiskJournal blocks, entities;
     final File directory;
     private int size;
@@ -29,6 +30,9 @@ final class PasteDiskHistory implements ChangeSet,Closeable {
     private final EntityIdentity identity;
     private boolean detached;
     private PasteMemoryBudget.Ticket descriptor;
+    private Object replayOwner;
+    synchronized boolean acquireReplay(Object owner){if(replayOwner==null)replayOwner=owner;return replayOwner==owner;}
+    synchronized void releaseReplay(Object owner){if(replayOwner==owner)replayOwner=null;}
     void retainDescriptor(PasteMemoryBudget.Ticket descriptor){if(this.descriptor==null)this.descriptor=descriptor;else descriptor.close();}
     PasteDiskHistory(PasteStreamStorage storage){this(storage,new ForgeIdentity());}
     PasteDiskHistory(PasteStreamStorage storage,EntityIdentity identity){writing=storage;blocks=storage.historyBlocks;entities=storage.historyEntities;directory=storage.directory;this.identity=identity;}
@@ -53,18 +57,19 @@ final class PasteDiskHistory implements ChangeSet,Closeable {
         identity.capture(r,entity);
     }
     private static final class ForgeIdentity implements EntityIdentity {
-        net.minecraft.world.World entityWorld;
+        WeakReference<net.minecraft.world.World> entityWorld=new WeakReference<net.minecraft.world.World>(null);
         public void capture(PasteDiskJournal.Record r,Entity entity)throws Exception{
         if (entity == null) throw new IllegalArgumentException("missing created entity");
         Object ref = field(entity, "entityRef");
         Object nativeEntity = ((WeakReference<?>) ref).get();
         if (!(nativeEntity instanceof net.minecraft.entity.Entity)) throw new IllegalArgumentException("expected Enhanced ForgeEntity identity");
         net.minecraft.entity.Entity e = (net.minecraft.entity.Entity) nativeEntity;
-        if (entityWorld != null && entityWorld != e.worldObj) throw new IllegalArgumentException("entity world changed");
-        entityWorld = e.worldObj; r.entityId = e.getEntityId(); r.uuid = e.getUniqueID();
+        if (entityWorld.get() != null && entityWorld.get() != e.worldObj) throw new IllegalArgumentException("entity world changed");
+        entityWorld = new WeakReference<net.minecraft.world.World>(e.worldObj); r.entityId = e.getEntityId(); r.uuid = e.getUniqueID();
         }
         public void remove(PasteDiskJournal.Record r){
-            net.minecraft.entity.Entity entity=entityWorld==null?null:entityWorld.getEntityByID(r.entityId);
+            net.minecraft.world.World world=entityWorld.get();
+            net.minecraft.entity.Entity entity=world==null?null:world.getEntityByID(r.entityId);
             if(entity!=null&&entity.getUniqueID().equals(r.uuid))entity.setDead();
         }
     }
@@ -78,6 +83,8 @@ final class PasteDiskHistory implements ChangeSet,Closeable {
         }
     }
     void seal() { writing = null; }
+    void persistenceFailed(Throwable failure){persistenceFailure=failure;seal();}
+    void requireReadable(){if(persistenceFailure!=null)throw new IllegalStateException("paste history persistence failed",persistenceFailure);}
     boolean ready() { return writing == null; }
     void detach() { detached = true; seal(); }
     public void close()throws IOException{
@@ -88,6 +95,7 @@ final class PasteDiskHistory implements ChangeSet,Closeable {
     public Iterator<Change> forwardIterator() { return iterator(true); }
     public Iterator<Change> backwardIterator() { return iterator(false); }
     private Iterator<Change> iterator(final boolean forward) {
+        requireReadable();
         if (writing != null) throw new IllegalStateException("history is still being prepared");
         return new Iterator<Change>() {
             long entityCursor = forward ? 0 : entities.count - 1, blockCursor = forward ? 0 : blocks.count - 1;

@@ -22,15 +22,49 @@ public final class OverdriveCommand extends CommandBase {
     private final WorldEditOverdrive mod;
     OverdriveCommand(WorldEditOverdrive mod){this.mod=mod;}
     public String getCommandName(){return "overdrive";}
-    public String getCommandUsage(ICommandSender sender){return "/overdrive <status|stats>";}
+    public String getCommandUsage(ICommandSender sender){return "/overdrive <status|stats|preparation|placement|history|pacing|paste|undo|redo> [preparation|placement|pacing]";}
     public int getRequiredPermissionLevel(){return 2;}
     public List getCommandAliases(){return Arrays.asList("worldeditoverdrive");}
     public void processCommand(ICommandSender sender,String[] args){
-        if(args.length!=1){send(sender,getCommandUsage(sender));return;}
+        if(args.length<1||args.length>2){send(sender,getCommandUsage(sender));return;}
+        String command=args[0].toLowerCase(java.util.Locale.ROOT),view=args.length==2?args[1].toLowerCase(java.util.Locale.ROOT):"all";
+        if(args.length==2&&(!(command.equals("paste")||command.equals("undo")||command.equals("redo"))||!(view.equals("preparation")||view.equals("placement")||view.equals("pacing")))){send(sender,getCommandUsage(sender));return;}
         if("status".equalsIgnoreCase(args[0]))status(sender);
         else if("stats".equalsIgnoreCase(args[0]))stats(sender);
+        else if(command.equals("preparation"))preparation(sender);
+        else if(command.equals("placement"))placement(sender);
+        else if(command.equals("pacing"))pacing(sender,PasteHookStatus.pacing);
+        else if(command.equals("paste")){if(view.equals("all")||view.equals("preparation"))preparation(sender);if(view.equals("all")||view.equals("placement"))placement(sender);if(view.equals("pacing"))pacing(sender,PasteHookStatus.pastePacing);}
+        else if(command.equals("undo")||command.equals("redo"))history(sender,command.equals("redo"),view);
+        else if(command.equals("history")){history(sender,false,"all");history(sender,true,"all");}
         else send(sender,getCommandUsage(sender));
     }
+    public List addTabCompletionOptions(ICommandSender sender,String[] args){
+        if(args.length==1)return getListOfStringsMatchingLastWord(args,"status","stats","preparation","placement","history","pacing","paste","undo","redo");
+        if(args.length==2&&(args[0].equalsIgnoreCase("paste")||args[0].equalsIgnoreCase("undo")||args[0].equalsIgnoreCase("redo")))return getListOfStringsMatchingLastWord(args,"preparation","placement","pacing");return null;
+    }
+    private static void preparation(ICommandSender sender){
+        send(sender,"Paste preparation: operation="+PasteHookStatus.pasteOperationId+" phase="+PasteHookStatus.activePhase+" captureStage="+PasteHookStatus.captureWorkStage+" preparationComplete="+PasteHookStatus.pastePreparationComplete);
+        send(sender,"sourceCellsVisited="+PasteHookStatus.snapshotProcessed.get()+" sourceCellsTotal="+PasteHookStatus.snapshotTotalEstimate.get()+" sourceCellsRemaining="+PasteHookStatus.pasteSourceCellsRemaining.get()+" mutationsPlanned="+PasteHookStatus.pastePlannedBlocks.get()+" mutationsSubmitted="+PasteHookStatus.pasteSubmittedBlocks.get());
+        send(sender,"capturePagesResident="+PasteHookStatus.pasteCapturePagesResident.get()+" capturePagesReleased="+PasteHookStatus.pasteCapturePagesReleased.get()+" workerTasksCompleted="+PasteHookStatus.pasteWorkerTasksCompleted.get()+" workerTasksSubmitted="+PasteHookStatus.pasteWorkerTasksSubmitted.get()+" workerTasksActive="+PasteHookStatus.pasteWorkerActive.get());
+        send(sender,"captureTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.captureTargetNanos.get())+" submissionTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.submissionTargetNanos.get())+" liveMemoryBytes="+PasteHookStatus.pasteLiveMemoryBytes.get()+" peakLiveMemoryBytes="+PasteHookStatus.pastePeakLiveMemoryBytes.get()+" spillBytes="+PasteHookStatus.pasteSpillBytes.get()+" waitReason="+PasteHookStatus.pastePacing.waitReason());
+        pacingRates(sender,PasteHookStatus.pastePacing);
+    }
+    private static void placement(ICommandSender sender){
+        send(sender,"Paste placement: operation="+PasteHookStatus.pasteOperationId+" stage="+PasteHookStatus.pastePlacementStage+" committedMutations="+PasteHookStatus.pasteCommittedBlocks.get()+" remainingMutations="+PasteHookStatus.commitRemaining.get()+" complete="+PasteHookStatus.commitCompletedNormally);
+        send(sender,"stage1Remaining="+PasteHookStatus.reorderStage1Remaining.get()+" stage2Remaining="+PasteHookStatus.reorderStage2Remaining.get()+" stage3Remaining="+PasteHookStatus.reorderStage3Remaining.get()+" tilesCommitted="+PasteHookStatus.pasteCommittedTiles.get()+" entitiesCommitted="+PasteHookStatus.pasteCommittedEntities.get()+" entitiesPrepared="+PasteHookStatus.pastePreparedEntities.get());
+        send(sender,"reorderTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.commitTargetNanos.get())+" commitResumes="+PasteHookStatus.commitResumeCalls.get()+" placementsLastResume="+PasteHookStatus.placementsThisResume.get()+" commitActiveMillis="+PasteHookStatus.commitStateActiveServerMillis.get()+" commitWallMillis="+PasteHookStatus.commitStateElapsedWallMillis.get()+" waitReason="+PasteHookStatus.pastePacing.waitReason());
+        pacingRates(sender,PasteHookStatus.pastePacing);
+    }
+    private static void history(ICommandSender sender,boolean redo,String view){
+        PasteHookStatus.HistoryProgress p=redo?PasteHookStatus.redoProgress:PasteHookStatus.undoProgress;
+        send(sender,(redo?"Redo":"Undo")+": operation="+p.operationId+" phase="+p.phase+" historyEntriesRemaining="+p.entriesRemaining+" waitReason="+p.waitReason);
+        if(view.equals("all")||view.equals("preparation"))send(sender,"historyRecordsStaged="+p.processed+" selectedHistoryRecordsTotal="+p.total+" liveMemoryBytes="+p.liveBytes+" peakLiveMemoryBytes="+p.peakBytes);
+        if(view.equals("all")||view.equals("placement"))send(sender,"blocksCommitted="+p.committed+" entitiesApplied="+p.entities+" stage1Remaining="+p.stage1+" stage2Remaining="+p.stage2+" stage3Remaining="+p.stage3);
+        if(view.equals("pacing"))pacing(sender,p.pacing);else pacingRates(sender,p.pacing);
+    }
+    private static void pacing(ICommandSender sender,com.glowingfederal.worldeditoverdrive.integration.PastePacingDiagnostics diagnostics){for(String line:diagnostics.describe())send(sender,line);}
+    private static void pacingRates(ICommandSender sender,com.glowingfederal.worldeditoverdrive.integration.PastePacingDiagnostics diagnostics){for(String line:diagnostics.describe())if(line.startsWith("pasteRecentPlacementsPerSecond="))send(sender,line);}
     private void status(ICommandSender sender){
         ModContainer we=Loader.instance().getIndexedModList().get("worldedit");OverdriveCoordinator coordinator=mod.getCoordinator();
         OverdriveConfiguration c=mod.getConfiguration();
@@ -71,6 +105,7 @@ public final class OverdriveCommand extends CommandBase {
         send(sender,"averageCommitResumeMillis="+OverdriveEditSummary.ms(resumes==0?0:resumeNanos/resumes)+" medianCommitResumeLowerMillis="+OverdriveEditSummary.ms(PasteHookStatus.medianCommitResumeLowerNanos.get())+" medianCommitResumeUpperMillis="+(PasteHookStatus.medianCommitResumeUpperNanos.get()==Long.MAX_VALUE?"unbounded":OverdriveEditSummary.ms(PasteHookStatus.medianCommitResumeUpperNanos.get()))+" maxCommitResumeExactMillis="+OverdriveEditSummary.ms(PasteHookStatus.maxCommitResumeNanos.get())+" resumeAllowanceUsedPercent="+(allowanceNanos==0?0D:100D*resumeNanos/allowanceNanos)+" commitResumesOver50Millis="+PasteHookStatus.commitResumesOver50Millis.get());
         send(sender,"pasteCaptureTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.captureTargetNanos.get())+" pasteSubmissionTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.submissionTargetNanos.get())+" pasteReorderTargetMillis="+OverdriveEditSummary.ms(PasteHookStatus.commitTargetNanos.get())+" commitPacingStage="+PasteHookStatus.commitPacingStage+" commitBudgetIncreases="+PasteHookStatus.commitBudgetIncreases.get()+" commitBudgetDecreases="+PasteHookStatus.commitBudgetDecreases.get()+" pastePacingState=per-paste");
         send(sender,"maxStage3PreparationMillis="+OverdriveEditSummary.ms(PasteHookStatus.maxStage3PreparationNanos.get())+" maxDependencyChainMillis="+OverdriveEditSummary.ms(PasteHookStatus.maxDependencyChainNanos.get())+" maxDownstreamMutationDetail="+PasteHookStatus.maxDownstreamMutationDetail);
+        for(String pacing:PasteHookStatus.pacing.describe())send(sender,pacing);
         send(sender,"lastPasteGraphDiagnostic="+PasteHookStatus.lastPasteGraphDiagnostic);
         send(sender,"pasteRuntimeShape="+PasteHookStatus.runtimeShape()+" forwardExtentCopySeen="+PasteHookStatus.forwardExtentCopySeen()+" pasteRuntimeShapeCompatible="+PasteHookStatus.runtimeShapeCompatible()+" pasteBytecodeModified="+PasteHookStatus.pasteBytecodeModified);
         send(sender,"pasteHookReason="+PasteHookStatus.hookReason);
@@ -78,6 +113,7 @@ public final class OverdriveCommand extends CommandBase {
         send(sender,"pasteStateMemoryBytes="+PasteHookStatus.pasteStateMemoryBytes.get()+" pasteCaptureMemoryBytes="+PasteHookStatus.pasteCaptureMemoryBytes.get()+" pastePlanningMemoryBytes="+PasteHookStatus.pastePlanningMemoryBytes.get()+" pasteCommitMemoryBytes="+PasteHookStatus.pasteCommitMemoryBytes.get()+" pasteHistoryMemoryBytes="+PasteHookStatus.pasteHistoryMemoryBytes.get()+" pasteEntityMemoryBytes="+PasteHookStatus.pasteEntityMemoryBytes.get()+" pasteWorkerMemoryBytes="+PasteHookStatus.pasteWorkerMemoryBytes.get());
         send(sender,"pasteGlobalLiveMemoryBytes="+PasteHookStatus.pasteGlobalLiveMemoryBytes.get()+" pasteGlobalPeakLiveMemoryBytes="+PasteHookStatus.pasteGlobalPeakLiveMemoryBytes.get()+" pasteSpillBytes="+PasteHookStatus.pasteSpillBytes.get()+" pasteMemoryBackpressureYields="+PasteHookStatus.pasteMemoryBackpressureYields.get()+" pasteMemoryBackpressureReason="+PasteHookStatus.pasteMemoryBackpressureReason+" workerIoCodecMillis="+PasteHookStatus.pasteWorkerIoNanos.get()/1000000L);
         send(sender,"pasteSourceCellsRemaining="+PasteHookStatus.pasteSourceCellsRemaining.get()+" pasteCapturePagesResident="+PasteHookStatus.pasteCapturePagesResident.get()+" pasteCapturePagesReleased="+PasteHookStatus.pasteCapturePagesReleased.get());
+        send(sender,"pasteOperationId="+PasteHookStatus.pasteOperationId+" pastePreparationComplete="+PasteHookStatus.pastePreparationComplete+" pastePlacementStage="+PasteHookStatus.pastePlacementStage);
         send(sender,"historyCommandHookInstalled="+PasteHookStatus.historyCommandHookInstalled+" historySessionHookInstalled="+PasteHookStatus.historySessionHookInstalled+" historyReplayPhase="+PasteHookStatus.historyReplayPhase+" historyReplayProcessed="+PasteHookStatus.historyReplayProcessed.get()+" historyReplayTotal="+PasteHookStatus.historyReplayTotal.get()+" historyReplayLiveMemoryBytes="+PasteHookStatus.historyReplayLiveMemoryBytes.get()+" historyReplayPeakLiveMemoryBytes="+PasteHookStatus.historyReplayPeakLiveMemoryBytes.get());
         send(sender,"coordinator="+(coordinator==null?"stopped":"running")+" workers="+c.preparationWorkers+" globalMemory="+c.maxPreparedBytes+" operationMemory="+c.maxPreparedBytesPerOperation+" coordinatorCommitTick="+OverdriveEditSummary.ms(c.commitBudgetNanos)+"ms (separate from paste pacing)");
     }
