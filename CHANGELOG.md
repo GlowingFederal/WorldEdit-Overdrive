@@ -501,3 +501,33 @@ Changes are listed oldest to newest.
 - Added nanosecond deadline budget, resume-entry/first-placement headroom, resume duration and work-unit diagnostics, including expired-at-entry and first-mutation overshoot counts.
 - Added commit-state elapsed versus active timing and maximum-resume stage/work/entry-state diagnostics. Downstream mutation timing now records the slowest individual `setBlock` duration and its destination chunk without per-block logging.
 - Preserved the existing hard tick deadline and repeated same-tick resume loop. No budget constants or continuation lifecycle semantics changed; runtime validation is still required to determine whether pacing is deadline starvation, full budget consumption, or indivisible downstream mutation cost.
+
+2026-09-27 21:57 — Add per-paste pacing and separate reorder timing
+
+- Gave capture, submission, and reorder commit independent conservative time controllers
+  owned by each paste. Targets grow 10% after four safe samples, cut immediately after
+  overshoot, and clamp at reorder stage transitions under the shared hard tick deadline.
+- Preserved retained commit continuation, complete dependency-chain placement, entity and
+  history ordering, fast-mode fallback, and synchronous ordinary WorldEdit flushing.
+- Separated submission, reorder, and finalization active/elapsed timing; kept aggregate
+  commit timing updating through completion and cleared child work counts per resume.
+- Added fixed-memory resume mean/median interval/maximum and allowance utilization,
+  controller feedback counts, stage-three setup/chain timing, and slowest mutation context.
+- Published downstream placement counters per resume and excluded ordinary synchronous
+  flushes from last-paste diagnostics. Updated paste architecture and status documentation.
+
+2026-09-27 22:18 — Bound large paste startup work across ticks
+
+- Resolved the two lazy reorder commit classes during server startup so a cold first
+  paste does not fall back solely because their LaunchWrapper hooks have not been offered.
+- Replaced whole-clipboard capture arrays with lazily allocated 1,024-cell pages and
+  page-local auxiliary block maps. Snapshot sealing now transfers completed pages without
+  copying the full map or rescanning the volume for air.
+- Made entity region filtering and NBT retained-memory estimation resumable under the
+  capture deadline; removed whole-list filtering and NBT string rendering from startup.
+- Spread immutable planning-job dispatch across ticks with at most four jobs per tick.
+- Stopped supported pastes rejected by the existing memory limits from falling into an
+  unbounded synchronous native paste. Resource rejection now reports an error before
+  placement; unsupported-graph and reorder-plus-fast-mode fallback semantics remain.
+- Added capture stage/page/slice diagnostics and documented startup ownership, resource
+  rejection, snapshot API compatibility, and incremental preparation.

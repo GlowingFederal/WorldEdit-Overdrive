@@ -7,7 +7,7 @@ import com.sk89q.worldedit.LocalSession;
 
 /** Explicit ownership boundary for the future transformed paste call site. */
 public final class PasteBridge {
-    public enum Decision { VANILLA, DEFERRED }
+    public enum Decision { VANILLA, DEFERRED, REJECTED }
     public static final class Result {
         public final Decision decision; public final PasteContinuationOperation continuation; public final String reason;
         private Result(Decision decision,PasteContinuationOperation continuation,String reason){this.decision=decision;this.continuation=continuation;this.reason=reason;}
@@ -26,6 +26,9 @@ public final class PasteBridge {
             PasteHookStatus.lastPasteFallbackReason=null;
             PasteHookStatus.lastPasteDeferredReason="owned standard Enhanced 6.3.0 paste graph";
             return deferred(interceptStarted);
+        } catch(DeferredPasteManager.AdmissionRejectedException rejected){
+            PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-interceptStarted)/1000000L);PasteHookStatus.pasteAdmissionRejected.incrementAndGet();PasteHookStatus.lastPasteAdmissionRejection=rejected.getMessage();
+            player.printError(rejected.getMessage());return Decision.REJECTED;
         } catch(Throwable unavailable) { PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-interceptStarted)/1000000L);return fallback("deferred ownership unavailable: "+unavailable.toString()); }
     }
     private static Decision deferred(long started){PasteHookStatus.lastOperationCommandInterceptMillis.set((System.nanoTime()-started)/1000000L);return Decision.DEFERRED;}

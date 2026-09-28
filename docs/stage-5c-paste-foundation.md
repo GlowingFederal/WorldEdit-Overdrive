@@ -1,6 +1,6 @@
 # Stage 5C live deferred paste interception
 
-## Single-boundary flush architecture
+## Current paste scheduling and commit architecture
 
 Enhanced 6.3.0 `EditSession.flushQueue()` is not a bounded native-queue drain. Its
 entire implementation is `Operations.completeBlindly(commit())`, and
@@ -12,24 +12,44 @@ the `EditSession` API nor the operation API offers a depth, a bounded resume cou
 a chunk-specific drain. Consequently mutation count since the prior call cannot bound
 a flush, and the call itself is non-preemptible once `completeBlindly` starts.
 
-Accelerated paste now requires `EditSession.isQueueEnabled()` to be false. In that
-mode each `setBlock()` synchronously traverses the normal mask, limit, history,
-validation, chunk-loading, quirk/survival, and world extents on the server thread;
-there is no reorder work that needs an intermediate flush. Overdrive therefore owns
-chunk-local scheduling (at most two chunks and the adaptive wall-time deadline per
-slice) and calls `flushQueue()` exactly once at the block/entity semantic boundary.
-That final call is retained for WorldEdit finalization, including fast-mode/custom
-platform effects. Its duration is explicitly reported as non-preemptible when it
-exceeds the live budget. Sessions with reorder enabled fall back rather than silently
-changing placement ordering or attempting to inspect private queue state.
+Supported reorder-enabled pastes submit through `EditSession.setBlock()` and obtain
+`EditSession.commit()` once. Enhanced-specific child resume hooks retain the original
+placement iterator and stage-three dependency state across ticks. Only real exhaustion
+returns null; dependency chains remain atomic. The owner stays COMMITTING until the
+top-level operation is null and all observed reorder stages are exhausted. Entities,
+history, selection, and success feedback follow that boundary. There are no intermediate
+flushes and no explicit final synchronous flush on this path. Reorder plus fast mode
+continues to fall back because its dirty-chunk finalizer cannot be sliced safely.
+
+One hard server-tick deadline bounds all owners. Each paste starts independent capture,
+submission, and reorder controllers at 5 ms, grows 10% after four safe samples, and cuts
+immediately after overshoot. Stage transitions clamp aggression. Inner resumes share
+one slice deadline; no inner call receives a renewed full allowance. Phase targets do
+not survive paste completion. Native mutation and complete dependency chains remain
+indivisible and can overrun a cooperative deadline.
+
+Startup also obeys that deadline: capture allocates 1,024-cell pages on demand, counts air
+as cells are read, and resumes entity filtering and NBT sizing across ticks. Completed
+pages are sealed without a full-volume scan or map copy. Planning dispatch is limited to
+four jobs per tick. Supported pastes rejected by the existing preparation-memory limits
+return a resource error instead of starting a synchronous native traversal; semantic
+fallbacks for unsupported graphs remain unchanged.
 
 Status now distinguishes source cells and air/ignore-air filtering from destination
 matches and actual planned/submitted/committed mutations. Destination matches reduce
 the actual plan as they are classified on the server thread, so `commitRemaining` is
-zero after successful block completion. The sole final flush reports the total
-mutations and distinct chunks associated with that semantic boundary.
+zero after successful downstream block completion. Capture, worker planning, submission,
+reorder, and finalization report separate active/elapsed timing. Resume distribution,
+deadline utilization, controller changes, and slowest mutation context are documented in
+[`worldedit-enhanced-integration.md`](worldedit-enhanced-integration.md#commit-deadline-and-pacing-diagnostics).
 
-The runtime shape gate remains strict, and this increment installs the first active command-scoped paste interception. It defers Enhanced's original operation without claiming accelerated planning.
+The runtime shape gate remains strict. Unsupported graphs fail open to Enhanced.
+
+## Implementation history
+
+The sections below retain earlier Stage 5C implementation findings and superseded
+incremental designs. The current architecture above and the integration document describe
+the production path; older batch-flush and reorder-disabled designs are no longer active.
 
 ## Verified source path, LaunchWrapper identity, and runtime gate
 

@@ -1,8 +1,9 @@
 # WorldEdit Enhanced 6.3.0 integration and ownership
 
-WorldEdit Overdrive is currently a minimal Forge 1.7.10 addon for WorldEdit
-Enhanced 6.3.0. Enhanced is the authoritative WorldEdit implementation;
-Overdrive does not yet provide KAWE/FAWE acceleration or override WorldEdit.
+WorldEdit Overdrive is a Forge 1.7.10 addon for WorldEdit Enhanced 6.3.0.
+Standard supported clipboard pastes use incremental server-thread capture,
+immutable worker planning, and server-thread submission and reorder commit.
+Enhanced remains authoritative for mutation, ordering, history, and world updates.
 
 ## Active build boundary
 
@@ -51,9 +52,9 @@ emission cannot be read, Overdrive discards the attempted `EditSession` rewrite,
 returns the original Enhanced bytes, and reports all associated command hooks as
 unavailable.
 
-## Deferred work
+## Original addon baseline
 
-This baseline intentionally does not port Forge chunk writers, FAWE queues,
+The original baseline intentionally did not port Forge chunk writers, FAWE queues,
 history, asynchronous editing, or WorldEdit overrides. Those features require
 separate compatibility work against Enhanced after the clean addon can build
 and start successfully.
@@ -130,20 +131,86 @@ labels identify them as last-paste values.
 
 ## Commit deadline and pacing diagnostics
 
-The deferred manager creates the hard deadline once at the start of its server-tick
-callback, after the normal server tick has been observed. Submission, capture, and any
-earlier owner scheduled in that callback therefore consume the same hard tick allowance.
-A retained commit installs that absolute `System.nanoTime()` deadline in the reorder
-bridge immediately before resuming the operation graph. Both transformed child operations
-use `System.nanoTime()` nanoseconds and check after each stage-one/two placement or complete
-stage-three attachment chain. The top-level driver may resume again in the same tick only
-while that same hard deadline remains; it never grants a new full allowance to an inner
-resume.
+The deferred manager creates one hard deadline at the start of its server-tick callback,
+after observing the normal server tick. Earlier owners consume that same allowance.
+Each paste has independent capture, submission, and reorder time controllers. They start
+at 5 ms, with a 1 ms floor and a 30 ms ceiling, and clamp their slice deadline to the hard
+deadline. The coordinator's separate `coordinatorCommitTick` setting does not control paste.
 
-Status output distinguishes the remaining budget at commit entry and first placement,
-active time spent in retained reorder resumes, and elapsed commit-state wall time (which
-includes waits between server ticks). It also identifies the longest resume's operation
-stage and work counts, and the slowest observed individual downstream `setBlock` call and
-chunk. Because a downstream mutation and a complete stage-three dependency chain are
-indivisible cooperative units, either may overshoot the deadline; the diagnostics describe
-such an overshoot rather than asserting a hard per-resume latency guarantee.
+Four safe samples using at least 75% of the available target permit 10% growth. More than
+10% overshoot (with a 0.1 ms tolerance) halves the target immediately; exceeding twice the
+allowance clamps it to 1 ms. A shortened allowance caused by another owner cannot train
+growth. Entering stage three or downstream finalizers clamps the reorder target to at most
+5 ms and resets the growth streak. All corrections apply during the current paste.
+Only the global server-load estimate and lifetime tick statistics survive across pastes;
+an earlier paste's learned phase targets are never used as startup targets.
+
+A retained commit installs its absolute `System.nanoTime()` slice deadline in the reorder
+bridge. Children check before the next placement or complete dependency chain, including
+when they enter with an expired deadline. The driver can resume again if a child finishes
+early, but never extends the current slice deadline. Growth affects a subsequent tick;
+contraction may shorten the current slice. A chain already started finishes atomically.
+
+Status separates capture active/elapsed time, summed worker time/planning elapsed time,
+submission active/elapsed time, reorder commit active/elapsed time, and finalization
+active/elapsed time. `commitState*` covers only the reorder phase, including operation
+initialization. `commitServerMillis`, `lastPasteCommitMillis`, and `commitActiveMillis`
+retain their aggregate meaning: submission + reorder + finalization. `commitWallMillis`
+continues updating through reorder and finalization instead of freezing after submission.
+
+Resume statistics include actual mean and maximum duration, a fixed-memory 0.25 ms
+median interval (averaging the two middle samples for an even count), allowance utilization, and a count
+above 50 ms. Per-resume child counts are reset before each top-level call, so a stage-three
+or downstream call cannot inherit the previous block placer's work counts. Diagnostics
+also report controller increases/decreases, stage-three preparation time, complete-chain
+time, and the slowest downstream `setBlock` with stage, block ID/data, NBT presence,
+position, chunk, and downstream extent. These identify the call context, not an internal
+lighting/update/chunk-load attribution; that requires runtime profiling of the native path.
+
+Placement counters are published once per child resume rather than through atomic updates
+for every block. Ordinary synchronous flushing installs no deadline and does not modify
+last-paste diagnostics. A downstream mutation, stage-three setup/collection clearing, or a
+complete dependency chain can still overshoot: none is preemptible inside its native call.
+No latency or throughput improvement is claimed from static controller inspection alone.
+
+## Incremental paste startup
+
+The standard Enhanced `PasteBuilder.build()` constructs references and an operation graph;
+it does not visit the clipboard. Overdrive's command interception performs graph checks and
+constant-size admission only. The first server tick creates a small page directory rather
+than five full-volume arrays. Capture allocates 1,024-cell pages as it progresses under the
+same phase/tick deadline; auxiliary block maps are local to those pages. Full integer IDs,
+metadata, destination coordinates, and copied `BaseBlock` NBT remain unchanged.
+
+The two reorder commit classes are resolved through Enhanced's actual class loader, without
+initialization or running a commit, during `FMLServerStartingEvent`. They are otherwise lazy:
+checking hook flags before the first `MultiStageReorder.commitBefore()` could reject the cold
+first paste and run it synchronously merely because its commit classes had not yet been
+offered to LaunchWrapper. Hook preparation removes that bootstrap dependency. An incompatible
+transform still leaves support disabled and retains the semantic fallback.
+
+Air counts accumulate during capture. Entity capture obtains concrete `BlockArrayClipboard`'s
+constant-time unfiltered list and resumes region filtering and native `ExtentEntityCopy`
+one entity at a time. Entity snapshots also use pages. NBT admission sizing walks tag entries
+incrementally, with at most 4,096 entries per continuation, instead of rendering entire tag
+trees to strings. This retained-memory estimate accounts for tag/container/string/array data;
+it is an estimate, not an exact JVM heap measurement.
+
+Snapshot sealing transfers the completed builder's pages in constant time. There is no
+full auxiliary-map copy, final air pass, or NBT scan at that boundary. The existing dense-array
+snapshot constructor is retained for API compatibility, but the live owner never calls it.
+Planning jobs are dispatched at most four per server tick, under the capture time target;
+the worker-only filtering and final chunk grouping retain their existing semantics.
+
+Supported graphs rejected by the 64 MiB per-operation or 128 MiB global admission limits
+now report a resource error and return without placement or success feedback. They no longer
+fall into a synchronous full-size native paste. Busy global admission can be retried after
+the active paste finishes. Unsupported graphs, missing hooks, and reorder plus fast mode
+still follow the native fallback contract. A capture that grows past admission fails before
+destination submission and is never replayed synchronously.
+
+Status includes `captureWorkStage`, `captureSlices`, `capturePagesAllocated`, and
+`maxCaptureSliceMillis`, plus a separately labeled lifetime admission-rejection count and
+the last rejection reason. Individual native clipboard reads, transform hooks, entity copies,
+and JVM allocation/GC pauses are still indivisible; a cooperative deadline cannot preempt
+one of those calls. Large-paste startup responsiveness remains a runtime verification item.

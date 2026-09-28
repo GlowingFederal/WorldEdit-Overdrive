@@ -22,6 +22,10 @@ public final class PasteHookStatus {
     public static volatile boolean topLevelCommitReturnedNull,commitCompletedNormally;
     public static volatile String commitOperationClass="none",activeCommitOperationClassBeforeResume="none",activeCommitOperationClassAfterResume="none";
     public static volatile String maxCommitResumeStage="none",maxDownstreamMutationDestinationChunk="none";
+    public static volatile String maxDownstreamMutationDetail="none";
+    public static volatile String commitPacingStage="none";
+    public static volatile String childResumeStage="none";
+    public static volatile String captureWorkStage="IDLE",lastPasteAdmissionRejection;
     public static volatile boolean maxCommitResumeBeganExpired;
     public static final AtomicLong pasteBridgeInvocations=new AtomicLong();
     public static final AtomicLong pasteAccelerated=new AtomicLong();
@@ -30,6 +34,7 @@ public final class PasteHookStatus {
     public static final AtomicLong pasteDeferredCompleted=new AtomicLong();
     public static final AtomicLong pasteDeferredFailed=new AtomicLong();
     public static final AtomicLong pasteAccelerationFallbacks=new AtomicLong();
+    public static final AtomicLong pasteAdmissionRejected=new AtomicLong(),captureSlices=new AtomicLong(),capturePagesAllocated=new AtomicLong(),maxCaptureSliceNanos=new AtomicLong();
     public static final AtomicLong pastePlanningActive=new AtomicLong(),pasteCommitActive=new AtomicLong();
     public static final AtomicLong pasteWorkerTasksSubmitted=new AtomicLong(),pasteWorkerTasksCompleted=new AtomicLong(),pasteWorkerActive=new AtomicLong(),pasteWorkerPlanNanos=new AtomicLong(),pasteWorkerMaxConcurrency=new AtomicLong();
     public static final AtomicLong pastePreparedBlocks=new AtomicLong(),pastePlannedBlocks=new AtomicLong(),pasteSubmittedBlocks=new AtomicLong(),pasteCommittedBlocks=new AtomicLong();
@@ -44,8 +49,12 @@ public final class PasteHookStatus {
     public static final AtomicLong incrementalCommitSlices=new AtomicLong(),commitResumeCalls=new AtomicLong(),maxCommitResumeMillis=new AtomicLong(),commitOperationRemaining=new AtomicLong(-1),finalSynchronousFlushCount=new AtomicLong();
     public static final AtomicLong deadlineBudgetNanos=new AtomicLong(),deadlineRemainingNanosAtResumeEntry=new AtomicLong(),deadlineRemainingNanosAtFirstPlacement=new AtomicLong(-1),resumeElapsedNanos=new AtomicLong(),placementsThisResume=new AtomicLong(),deadlineExpiredAtEntry=new AtomicLong(),deadlineExpiredAfterFirstPlacement=new AtomicLong();
     public static final AtomicLong commitStateElapsedWallMillis=new AtomicLong(),commitStateActiveServerMillis=new AtomicLong(),maxCommitResumePlacements=new AtomicLong(),maxCommitResumeChains=new AtomicLong(),maxDownstreamMutationNanos=new AtomicLong();
+    public static final AtomicLong submissionElapsedWallMillis=new AtomicLong(),submissionActiveServerMillis=new AtomicLong(),finalizationElapsedWallMillis=new AtomicLong();
+    public static final AtomicLong totalCommitResumeNanos=new AtomicLong(),maxCommitResumeNanos=new AtomicLong(),medianCommitResumeLowerNanos=new AtomicLong(),medianCommitResumeUpperNanos=new AtomicLong();
+    public static final AtomicLong totalResumeAllowanceNanos=new AtomicLong(),commitResumesOver50Millis=new AtomicLong(),maxStage3PreparationNanos=new AtomicLong(),maxDependencyChainNanos=new AtomicLong();
+    public static final AtomicLong captureTargetNanos=new AtomicLong(),submissionTargetNanos=new AtomicLong(),commitTargetNanos=new AtomicLong(),commitBudgetIncreases=new AtomicLong(),commitBudgetDecreases=new AtomicLong();
     public static final AtomicLong reorderStage1Remaining=new AtomicLong(-1),reorderStage2Remaining=new AtomicLong(-1),reorderStage3Remaining=new AtomicLong(-1);
-    public static final AtomicLong blockMapPlacementsThisResume=new AtomicLong(),stage3ChainsThisResume=new AtomicLong(),deadlineYieldCount=new AtomicLong(),blockMapDeadlineYields=new AtomicLong(),stage3DeadlineYields=new AtomicLong();
+    public static final AtomicLong blockMapPlacementsThisResume=new AtomicLong(),stage3PlacementsThisResume=new AtomicLong(),stage3ChainsThisResume=new AtomicLong(),deadlineYieldCount=new AtomicLong(),blockMapDeadlineYields=new AtomicLong(),stage3DeadlineYields=new AtomicLong();
     public static final AtomicLong snapshotProcessed=new AtomicLong(),snapshotTotalEstimate=new AtomicLong(),workerQueuedChunks=new AtomicLong(),workerCompletedChunks=new AtomicLong(),commitRemaining=new AtomicLong();
     public static volatile String activePhase="IDLE";
     public static RuntimeShape runtimeShape(){return runtimeShape.get();}

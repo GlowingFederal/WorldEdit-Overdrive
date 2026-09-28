@@ -11,6 +11,7 @@ import com.glowingfederal.worldeditoverdrive.execution.OverdriveConfiguration;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveCoordinator;
 import com.glowingfederal.worldeditoverdrive.execution.OverdriveTickHandler;
 import com.glowingfederal.worldeditoverdrive.integration.Stage4HookStatus;
+import com.glowingfederal.worldeditoverdrive.integration.EnhancedReorderYieldBridge;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
 
@@ -50,7 +51,7 @@ public final class WorldEditOverdrive {
     }
 
     @Mod.EventHandler
-    public void serverStarting(FMLServerStartingEvent event){event.registerServerCommand(new OverdriveCommand(this));}
+    public void serverStarting(FMLServerStartingEvent event){EnhancedReorderYieldBridge.prepareHooks();event.registerServerCommand(new OverdriveCommand(this));}
 
     @Mod.EventHandler
     public void serverStarted(FMLServerStartedEvent event) {

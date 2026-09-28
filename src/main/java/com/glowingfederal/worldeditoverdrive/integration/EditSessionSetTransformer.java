@@ -82,14 +82,14 @@ public final class EditSessionSetTransformer implements IClassTransformer {
             }
             if(methods!=1||calls!=1||target==null||completion==null)return pasteCommandUnavailable(bytes,"expected one paste"+PASTE_DESC+" completeLegacy call; methods="+methods+", calls="+calls);
             // Stack on entry is [operation]. Keep it for vanilla; ownership is explicit
-            // only after tryDefer has registered a complete deferred owner.
+            // after registration; a resource rejection also exits without native traversal.
             LabelNode vanilla=new LabelNode();InsnList hook=new InsnList();
             hook.add(new InsnNode(Opcodes.DUP));hook.add(new VarInsnNode(Opcodes.ALOAD,1));hook.add(new VarInsnNode(Opcodes.ALOAD,2));
             hook.add(new VarInsnNode(Opcodes.ILOAD,6));
             hook.add(new MethodInsnNode(Opcodes.INVOKESTATIC,"com/glowingfederal/worldeditoverdrive/integration/PasteBridge","tryDefer",
                     "(Lcom/sk89q/worldedit/function/operation/Operation;Lcom/sk89q/worldedit/entity/Player;Lcom/sk89q/worldedit/LocalSession;Z)Lcom/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision;",false));
-            hook.add(new FieldInsnNode(Opcodes.GETSTATIC,"com/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision","DEFERRED","Lcom/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision;"));
-            hook.add(new JumpInsnNode(Opcodes.IF_ACMPNE,vanilla));hook.add(new InsnNode(Opcodes.POP));hook.add(new InsnNode(Opcodes.RETURN));hook.add(vanilla);
+            hook.add(new FieldInsnNode(Opcodes.GETSTATIC,"com/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision","VANILLA","Lcom/glowingfederal/worldeditoverdrive/integration/PasteBridge$Decision;"));
+            hook.add(new JumpInsnNode(Opcodes.IF_ACMPEQ,vanilla));hook.add(new InsnNode(Opcodes.POP));hook.add(new InsnNode(Opcodes.RETURN));hook.add(vanilla);
             target.instructions.insertBefore(completion,hook);
             ClassWriter writer=new SafeClassWriter(ClassWriter.COMPUTE_FRAMES|ClassWriter.COMPUTE_MAXS);node.accept(writer);
             PasteHookStatus.hookInstalled();OverdriveLog.info("Stage 5C installed ClipboardCommands#paste{} completeLegacy interception",PASTE_DESC);
